@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>三国群英传</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div id="gameContainer">
+    <canvas id="gameCanvas"></canvas>
+  </div>
+
+  <!-- 数据层 -->
+  <script src="js/data/skills.js"></script>
+  <script src="js/data/cities.js"></script>
+  <script src="js/data/heroes.js"></script>
+
+  <!-- 核心层 -->
+  <script src="js/game.js"></script>
+
+  <!-- 系统层 -->
+  <script src="js/hero/HeroManager.js"></script>
+  <script src="js/hero/HeroPortrait.js"></script>
+  <script src="js/city/CityManager.js"></script>
+  <script src="js/battle/SkillSystem.js"></script>
+  <script src="js/battle/DuelSystem.js"></script>
+  <script src="js/battle/BattleEngine.js"></script>
+  <script src="js/battle/BattleScene.js"></script>
+  <script src="js/ai/AIController.js"></script>
+  <script src="js/map/MapRenderer.js"></script>
+  <script src="js/map/MapRealisticRenderer.js"></script>
+  <script src="js/map/MapController.js"></script>
+  <script src="js/ui/DialogSystem.js"></script>
+  <script src="js/ui/DuelUI.js"></script>
+  <script src="js/ui/UIManager.js"></script>
+
+  <!-- 入口 -->
+  <script src="js/main.js"></script>
+</body>
+</html>
