@@ -267,19 +267,30 @@ window.SG = window.SG || {};
       colorRow.appendChild(colorBtns);
       form.appendChild(colorRow);
 
-      // 起始城市
+      // 起始城市（仅可选在野空城，不可夺取已占领城）
       var citySelect = this._createSelect('cm_city', []);
       var cityOptions = [];
       var citiesData = window.SG.CITIES_DATA;
       for (var ci2 = 0; ci2 < citiesData.length; ci2++) {
-        cityOptions.push({ val: citiesData[ci2].id, label: citiesData[ci2].name });
+        if (citiesData[ci2].faction === 'none') {
+          cityOptions.push({ val: citiesData[ci2].id, label: citiesData[ci2].name });
+        }
       }
       citySelect.innerHTML = '';
-      for (var k = 0; k < cityOptions.length; k++) {
-        var opt = document.createElement('option');
-        opt.value = cityOptions[k].val;
-        opt.textContent = cityOptions[k].label;
-        citySelect.appendChild(opt);
+      if (cityOptions.length === 0) {
+        // 没有在野空城时给出提示，避免下拉框为空
+        var emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = '（暂无在野空城）';
+        emptyOpt.disabled = true;
+        citySelect.appendChild(emptyOpt);
+      } else {
+        for (var k = 0; k < cityOptions.length; k++) {
+          var opt = document.createElement('option');
+          opt.value = cityOptions[k].val;
+          opt.textContent = cityOptions[k].label;
+          citySelect.appendChild(opt);
+        }
       }
       form.appendChild(this._createFormRow('起始城市', citySelect));
 
@@ -320,42 +331,117 @@ window.SG = window.SG || {};
       for (var ai = 0; ai < attrNames.length; ai++) {
         (function(attrInfo) {
           var row = document.createElement('div');
-          row.style.cssText = 'display: flex; align-items: center; margin-bottom: 8px;';
+          row.style.cssText = 'display: flex; align-items: center; margin-bottom: 10px; gap: 4px;';
+
           var label = document.createElement('span');
-          label.textContent = attrInfo.label + '：';
-          label.style.cssText = 'width: 60px; color: #c4a882; font-size: 13px;';
+          label.textContent = attrInfo.label;
+          label.style.cssText = 'width: 36px; color: #c4a882; font-size: 13px; flex-shrink: 0;';
           row.appendChild(label);
 
+          // -10 按钮
+          var minus10Btn = document.createElement('button');
+          minus10Btn.textContent = '-10';
+          minus10Btn.style.cssText = 'width:36px;height:26px;cursor:pointer;background:#3a1a1a;color:#ff9090;border:1px solid #664040;border-radius:4px;font-size:11px;padding:0;';
+          minus10Btn.onclick = function() {
+            adjustAttr(attrInfo.key, -10);
+          };
+          row.appendChild(minus10Btn);
+
+          // -1 按钮
           var minusBtn = document.createElement('button');
           minusBtn.textContent = '-';
-          minusBtn.style.cssText = 'width:28px;height:26px;cursor:pointer;background:#333;color:#e8d4b0;border:1px solid #666;border-radius:4px;';
+          minusBtn.style.cssText = 'width:24px;height:26px;cursor:pointer;background:#333;color:#e8d4b0;border:1px solid #666;border-radius:4px;padding:0;';
           minusBtn.onclick = function() {
-            if (attrs[attrInfo.key] > 20) {
-              attrs[attrInfo.key]--;
-              valEl.textContent = attrs[attrInfo.key];
-              updateAttrPoints();
-            }
+            adjustAttr(attrInfo.key, -1);
           };
           row.appendChild(minusBtn);
 
+          // 数值显示
           var valEl = document.createElement('span');
           valEl.textContent = attrs[attrInfo.key];
-          valEl.style.cssText = 'width: 40px; text-align: center; color: #ffd700;';
+          valEl.style.cssText = 'width: 34px; text-align: center; color: #ffd700; font-weight: bold; flex-shrink: 0;';
           row.appendChild(valEl);
 
+          // 滑块（拖动调整）
+          var slider = document.createElement('input');
+          slider.type = 'range';
+          slider.min = '20';
+          slider.max = '100';
+          slider.step = '1';
+          slider.value = attrs[attrInfo.key];
+          slider.style.cssText = 'flex: 1; min-width: 80px; cursor: pointer; accent-color: #ffd700;';
+          slider.oninput = function() {
+            var newVal = parseInt(slider.value, 10);
+            var oldVal = attrs[attrInfo.key];
+            var delta = newVal - oldVal;
+            if (delta === 0) return;
+            // 检查总点数约束（增加时受 350 上限限制，减少时只受 20 下限限制）
+            if (delta > 0) {
+              var used = 0;
+              for (var ak in attrs) used += attrs[ak];
+              var remain = 350 - used;
+              if (remain <= 0) {
+                // 无剩余点数，回滚滑块
+                slider.value = oldVal;
+                return;
+              }
+              // 限制增量不超过剩余点数
+              if (delta > remain) {
+                delta = remain;
+                newVal = oldVal + delta;
+                slider.value = newVal;
+              }
+            }
+            attrs[attrInfo.key] = newVal;
+            valEl.textContent = newVal;
+            updateAttrPoints();
+          };
+          row.appendChild(slider);
+
+          // +1 按钮
           var plusBtn = document.createElement('button');
           plusBtn.textContent = '+';
-          plusBtn.style.cssText = 'width:28px;height:26px;cursor:pointer;background:#333;color:#e8d4b0;border:1px solid #666;border-radius:4px;';
+          plusBtn.style.cssText = 'width:24px;height:26px;cursor:pointer;background:#333;color:#e8d4b0;border:1px solid #666;border-radius:4px;padding:0;';
           plusBtn.onclick = function() {
-            var used = 0;
-            for (var ak in attrs) used += attrs[ak];
-            if (used < 350 && attrs[attrInfo.key] < 100) {
-              attrs[attrInfo.key]++;
-              valEl.textContent = attrs[attrInfo.key];
-              updateAttrPoints();
-            }
+            adjustAttr(attrInfo.key, 1);
           };
           row.appendChild(plusBtn);
+
+          // +10 按钮
+          var plus10Btn = document.createElement('button');
+          plus10Btn.textContent = '+10';
+          plus10Btn.style.cssText = 'width:36px;height:26px;cursor:pointer;background:#1a3a1a;color:#90ff90;border:1px solid #406640;border-radius:4px;font-size:11px;padding:0;';
+          plus10Btn.onclick = function() {
+            adjustAttr(attrInfo.key, 10);
+          };
+          row.appendChild(plus10Btn);
+
+          // 统一调整函数：处理边界与剩余点数，同步滑块和数值
+          function adjustAttr(key, delta) {
+            var oldVal = attrs[key];
+            var newVal = oldVal + delta;
+            // 下限 20
+            if (newVal < 20) newVal = 20;
+            // 上限 100
+            if (newVal > 100) newVal = 100;
+            var realDelta = newVal - oldVal;
+            if (realDelta === 0) return;
+            // 增加时受 350 总点数上限约束
+            if (realDelta > 0) {
+              var used = 0;
+              for (var ak in attrs) used += attrs[ak];
+              var remain = 350 - used;
+              if (remain <= 0) return;
+              if (realDelta > remain) {
+                newVal = oldVal + remain;
+                realDelta = remain;
+              }
+            }
+            attrs[key] = newVal;
+            valEl.textContent = newVal;
+            slider.value = newVal;
+            updateAttrPoints();
+          }
 
           attrContainer.appendChild(row);
         })(attrNames[ai]);
@@ -483,6 +569,7 @@ window.SG = window.SG || {};
 
         if (!name) { alert('请输入君主姓名'); return; }
         if (!factionName) { alert('请输入势力名称'); return; }
+        if (!cityId) { alert('请选择起始城市（当前无在野空城可用）'); return; }
 
         var customSkillData = {
           name: skillName,
@@ -595,6 +682,11 @@ window.SG = window.SG || {};
         window.SG.MapRenderer._resize();
         window.SG.MapRenderer._bgDirty = true;
         window.SG.MapRenderer.render();
+      }
+
+      // 初始化战斗场景（绑定canvas，否则AI触发战斗时canvas为null导致崩溃）
+      if (window.SG.BattleScene) {
+        window.SG.BattleScene.init();
       }
 
       // 更新UI

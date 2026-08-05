@@ -303,12 +303,12 @@ window.SG = window.SG || {};
           color = window.SG.FACTION_COLORS[army.faction];
         }
 
-        // 行军路径虚线
+        // 行军路径虚线（加粗醒目）
         ctx.save();
         ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.4;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 5]);
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
@@ -316,22 +316,86 @@ window.SG = window.SG || {};
         ctx.setLineDash([]);
         ctx.restore();
 
-        // 行军动画圆点（脉动效果）
-        var pulse = 1 + 0.3 * Math.sin(this._frame * 0.1 + i);
-        var radius = 6 * pulse;
-        ctx.save();
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.9;
-        ctx.beginPath();
-        ctx.arc(ax, ay, radius, 0, Math.PI * 2);
-        ctx.fill();
+        // 统计兵力
+        var totalTroops = 0;
+        if (army.heroIds) {
+          for (var h = 0; h < army.heroIds.length; h++) {
+            var hero = GS.heroes[army.heroIds[h]];
+            if (hero) totalTroops += hero.troops || 0;
+          }
+        }
 
-        // 外圈光晕
+        // 绘制军旗（旗杆 + 旗面 + 底座光晕），替换原来的小圆点
+        var wave = Math.sin(this._frame * 0.08 + i * 1.3) * 2; // 旗面飘动幅度
+        var poleH = 28, flagW = 20, flagH = 13;
+        var poleTop = ay - poleH;
+        var flagRight = ax + flagW + wave;
+
+        ctx.save();
+        // 旗杆
+        ctx.strokeStyle = '#3a2a1a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax, poleTop);
+        ctx.stroke();
+        // 旗顶金尖
+        ctx.fillStyle = '#ffd700';
+        ctx.beginPath();
+        ctx.moveTo(ax - 3, poleTop);
+        ctx.lineTo(ax + 3, poleTop);
+        ctx.lineTo(ax, poleTop - 5);
+        ctx.closePath();
+        ctx.fill();
+        // 旗面（势力色，带飘动）
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.92;
+        ctx.beginPath();
+        ctx.moveTo(ax, poleTop);
+        ctx.lineTo(flagRight, poleTop + 1);
+        ctx.lineTo(flagRight - 2, poleTop + flagH);
+        ctx.lineTo(ax, poleTop + flagH);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // 旗面武将数
+        if (army.heroIds && army.heroIds.length > 0) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 10px "Microsoft YaHei", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(army.heroIds.length + '将', ax + flagW / 2 + wave / 2, poleTop + flagH / 2 + 1);
+        }
+        // 旗杆底座脉动光晕
+        var pulse = 1 + 0.3 * Math.sin(this._frame * 0.1 + i);
+        ctx.fillStyle = color;
         ctx.globalAlpha = 0.3;
         ctx.beginPath();
-        ctx.arc(ax, ay, radius + 4, 0, Math.PI * 2);
+        ctx.arc(ax, ay, 10 * pulse, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 0.95;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
         ctx.restore();
+
+        // 兵力标注（底座右侧）
+        if (totalTroops > 0) {
+          ctx.save();
+          ctx.fillStyle = '#ffe6b0';
+          ctx.font = '11px "Microsoft YaHei", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          var troopText = totalTroops >= 1000 ? (totalTroops / 1000).toFixed(1) + 'k' : totalTroops;
+          ctx.fillText('兵' + troopText, ax + 9, ay);
+          ctx.restore();
+        }
       }
     },
 

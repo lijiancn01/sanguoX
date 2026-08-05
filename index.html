@@ -4,38 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>三国群英传</title>
-  <link rel="stylesheet" href="css/main.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0a00; }
+    #game { width: 100vw; height: 100vh; }
+  </style>
 </head>
 <body>
-  <div id="gameContainer">
-    <canvas id="gameCanvas"></canvas>
-  </div>
-
-  <!-- 数据层 -->
-  <script src="js/data/skills.js"></script>
-  <script src="js/data/cities.js"></script>
-  <script src="js/data/heroes.js"></script>
-
-  <!-- 核心层 -->
-  <script src="js/game.js"></script>
-
-  <!-- 系统层 -->
-  <script src="js/hero/HeroManager.js"></script>
-  <script src="js/hero/HeroPortrait.js"></script>
-  <script src="js/city/CityManager.js"></script>
-  <script src="js/battle/SkillSystem.js"></script>
-  <script src="js/battle/DuelSystem.js"></script>
-  <script src="js/battle/BattleEngine.js"></script>
-  <script src="js/battle/BattleScene.js"></script>
-  <script src="js/ai/AIController.js"></script>
-  <script src="js/map/MapRenderer.js"></script>
-  <script src="js/map/MapRealisticRenderer.js"></script>
-  <script src="js/map/MapController.js"></script>
-  <script src="js/ui/DialogSystem.js"></script>
-  <script src="js/ui/DuelUI.js"></script>
-  <script src="js/ui/UIManager.js"></script>
-
-  <!-- 入口 -->
-  <script src="js/main.js"></script>
+  <div id="game"></div>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script src="js/phaser/config.js"></script>
+  <script src="js/phaser/data/cities.js"></script>
+  <script src="js/phaser/data/heroes.js"></script>
+  <script src="js/phaser/data/skills.js"></script>
+  <script src="js/phaser/core/GameData.js"></script>
+  <script src="js/phaser/core/AIController.js"></script>
+  <script src="js/phaser/core/BattleEngine.js"></script>
+  <script src="js/phaser/scenes/BootScene.js"></script>
+  <script src="js/phaser/scenes/MenuScene.js"></script>
+  <script src="js/phaser/scenes/MapScene.js"></script>
+  <script src="js/phaser/scenes/BattleScene.js"></script>
+  <script src="js/phaser/main.js"></script>
 </body>
 </html>

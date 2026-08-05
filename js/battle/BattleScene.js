@@ -1124,8 +1124,9 @@ window.SG = window.SG || {};
     },
 
     _processEvents: function(events) {
-      var w = this.canvas.width;
-      var h = this.canvas.height;
+      // 防御：canvas未初始化时只处理战斗结束事件，避免崩溃卡死游戏
+      var w = this.canvas ? this.canvas.width : 800;
+      var h = this.canvas ? this.canvas.height : 600;
 
       for (var i = 0; i < events.length; i++) {
         var evt = events[i];

@@ -1,7 +1,6 @@
-// 城市数据
-window.SG = window.SG || {};
+window.SG3 = window.SG3 || {};
 
-window.SG.CITIES_DATA = [
+window.SG3.CITIES_DATA = [
   // 中原
   { id:'luoyang', name:'洛阳', x:420, y:220, faction:'wei', agriculture:80, commerce:90, morale:65, defense:70, troops:8000, maxTroops:15000, heroes:['caocao','xiahoudun','xuchu','simayi','xunyu'], adjacent:['xuchang','changan','ye','puyang','wan'], region:'zhongyuan' },
   { id:'xuchang', name:'许昌', x:440, y:270, faction:'wei', agriculture:75, commerce:85, morale:70, defense:60, troops:6000, maxTroops:12000, heroes:['xiahouyuan','guojia'], adjacent:['luoyang','runan','shouchun','puyang','xiaopei','wan'], region:'zhongyuan' },
@@ -40,47 +39,27 @@ window.SG.CITIES_DATA = [
   // 交州
   { id:'jiaozhou', name:'交州', x:380, y:520, faction:'none', agriculture:45, commerce:30, morale:35, defense:25, troops:1000, maxTroops:4000, heroes:['diaochan'], adjacent:['lingling','nanzhong'], region:'jiaozhou' },
 
-  // ===== 以下为补充的在野空城（faction:'none'），按三国史实起家地/要地补充 =====
-
-  // 河北补充：涿郡（刘备故里）、晋阳（并州治所）、幽州/蓟（幽州治所）、平原（刘备平原相）、北海（孔融北海相）
+  // 河北补充
   { id:'zhuojun', name:'涿郡', x:530, y:60, faction:'none', agriculture:50, commerce:40, morale:50, defense:35, troops:1500, maxTroops:5000, heroes:[], adjacent:['youzhou','beiping'], region:'hebei' },
   { id:'jinyang', name:'晋阳', x:430, y:60, faction:'none', agriculture:55, commerce:45, morale:50, defense:50, troops:2000, maxTroops:6000, heroes:[], adjacent:['ye','ji','youzhou'], region:'hebei' },
   { id:'youzhou', name:'幽州', x:480, y:50, faction:'none', agriculture:45, commerce:40, morale:45, defense:40, troops:1500, maxTroops:5000, heroes:[], adjacent:['beiping','jinyang','zhuojun'], region:'hebei' },
   { id:'pingyuan', name:'平原', x:490, y:120, faction:'none', agriculture:55, commerce:50, morale:55, defense:40, troops:1800, maxTroops:5500, heroes:[], adjacent:['beiping','ji','beihai'], region:'hebei' },
   { id:'beihai', name:'北海', x:520, y:170, faction:'none', agriculture:60, commerce:55, morale:55, defense:40, troops:2000, maxTroops:6000, heroes:[], adjacent:['pingyuan','xiapi','ye'], region:'hebei' },
 
-  // 中原补充：濮阳（吕布、曹操争夺）、小沛（刘备驻小沛）、下邳（吕布最后据点）、宛（张绣宛城）
+  // 中原补充
   { id:'puyang', name:'濮阳', x:475, y:200, faction:'none', agriculture:55, commerce:50, morale:50, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['ye','xuchang','luoyang','xiaopei'], region:'zhongyuan' },
   { id:'xiaopei', name:'小沛', x:500, y:230, faction:'none', agriculture:55, commerce:50, morale:55, defense:40, troops:1800, maxTroops:5500, heroes:[], adjacent:['puyang','xuchang','xiapi','shouchun'], region:'zhongyuan' },
   { id:'xiapi', name:'下邳', x:530, y:250, faction:'none', agriculture:60, commerce:55, morale:55, defense:45, troops:2200, maxTroops:6500, heroes:[], adjacent:['xiaopei','beihai','shouchun'], region:'zhongyuan' },
   { id:'wan', name:'宛', x:370, y:290, faction:'none', agriculture:60, commerce:55, morale:55, defense:50, troops:2500, maxTroops:7000, heroes:[], adjacent:['luoyang','xuchang','xiangyang','xinye'], region:'zhongyuan' },
 
-  // 荆州补充：新野（刘备投刘表驻新野）、江夏（刘琦江夏太守）
+  // 荆州补充
   { id:'xinye', name:'新野', x:385, y:360, faction:'none', agriculture:55, commerce:45, morale:55, defense:40, troops:1800, maxTroops:5500, heroes:[], adjacent:['wan','xiangyang','shangyong','jiangxia','jiangling'], region:'jingzhou' },
   { id:'jiangxia', name:'江夏', x:450, y:380, faction:'none', agriculture:60, commerce:50, morale:55, defense:45, troops:2200, maxTroops:6500, heroes:[], adjacent:['xiangyang','jiangling','chaisang','xinye'], region:'jingzhou' },
 
-  // 扬州补充：庐江（皖城，江北要地）
+  // 扬州补充
   { id:'lujiang', name:'庐江', x:520, y:330, faction:'none', agriculture:60, commerce:55, morale:55, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['shouchun','chaisang','jianye'], region:'jiangdong' },
 
-  // 西北补充：安定（关中西北要地）、武威（河西走廊，马氏故里附近）
+  // 西北补充
   { id:'anding', name:'安定', x:320, y:195, faction:'none', agriculture:50, commerce:40, morale:45, defense:45, troops:1800, maxTroops:5500, heroes:[], adjacent:['changan','tianshui'], region:'xibei' },
-  { id:'wuwei', name:'武威', x:235, y:145, faction:'none', agriculture:45, commerce:35, morale:40, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['xiliang','tianshui'], region:'xibei' },
+  { id:'wuwei', name:'武威', x:235, y:145, faction:'none', agriculture:45, commerce:35, morale:40, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['xiliang','tianshui'], region:'xibei' }
 ];
-
-// 势力颜色
-window.SG.FACTION_COLORS = {
-  wei: '#4488cc',   // 魏 - 蓝
-  shu: '#cc4444',   // 蜀 - 红
-  wu: '#44aa44',    // 吴 - 绿
-  qun: '#cc8844',   // 群 - 橙
-  none: '#888888',  // 在野 - 灰
-};
-
-// 势力名称
-window.SG.FACTION_NAMES = {
-  wei: '曹魏',
-  shu: '蜀汉',
-  wu: '东吴',
-  qun: '群雄',
-  none: '在野',
-};

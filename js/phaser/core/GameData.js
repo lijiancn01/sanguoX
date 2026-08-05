@@ -1,27 +1,31 @@
-// 三国群英传 - 全局游戏状态管理
-window.SG = window.SG || {};
+/**
+ * 三国群英传 - 核心游戏数据管理
+ * @author jian.li
+ */
+window.SG3 = window.SG3 || {};
 
 (function() {
   'use strict';
 
-  var SAVE_PREFIX = 'sg_save_';
+  var SAVE_PREFIX = 'sg3_save_';
 
-  var GS = {
+  var GD = {
 
     // ===== 状态 =====
     turn: 1,
-    phase: 'strategic',  // strategic, marching, battle, event
+    phase: 'strategic', // strategic, marching, battle, event
     playerFaction: 'shu',
     factions: {
-      wei:  { gold: 500, food: 500 },
-      shu:  { gold: 400, food: 400 },
-      wu:   { gold: 400, food: 400 },
-      qun:  { gold: 200, food: 200 }
+      wei: { gold: 500, food: 500 },
+      shu: { gold: 400, food: 400 },
+      wu:  { gold: 400, food: 400 },
+      qun: { gold: 200, food: 200 }
     },
-    cities: {},    // 以城市id为键
-    heroes: {},    // 以武将id为键
-    armies: [],    // 行军中的军队
-    battle: null,  // 当前战斗状态
+    cities: {},
+    heroes: {},
+    armies: [],
+    battle: null,
+    customFactionId: null,
 
     // ===== 初始化 =====
     init: function() {
@@ -33,47 +37,36 @@ window.SG = window.SG || {};
 
       // 初始化势力资源
       this.factions = {
-        wei:  { gold: 500, food: 500 },
-        shu:  { gold: 400, food: 400 },
-        wu:   { gold: 400, food: 400 },
-        qun:  { gold: 200, food: 200 }
+        wei: { gold: 500, food: 500 },
+        shu: { gold: 400, food: 400 },
+        wu:  { gold: 400, food: 400 },
+        qun: { gold: 200, food: 200 }
       };
 
-      // 深拷贝城市数据，添加运行时字段
+      // 深拷贝城市数据
       this.cities = {};
-      for (var i = 0; i < window.SG.CITIES_DATA.length; i++) {
-        var cd = window.SG.CITIES_DATA[i];
+      for (var i = 0; i < window.SG3.CITIES_DATA.length; i++) {
+        var cd = window.SG3.CITIES_DATA[i];
         var city = {};
         for (var key in cd) {
           if (cd.hasOwnProperty(key)) {
-            // heroes 数组需要拷贝，但先保留原始hero id列表
-            if (key === 'heroes') {
-              city[key] = cd[key].slice();
-            } else {
-              city[key] = cd[key];
-            }
+            city[key] = key === 'heroes' ? cd[key].slice() : cd[key];
           }
         }
-        // 运行时字段
         city.developAssign = { agriculture: null, commerce: null };
         this.cities[city.id] = city;
       }
 
-      // 深拷贝武将数据，添加运行时字段
+      // 深拷贝武将数据
       this.heroes = {};
-      for (var j = 0; j < window.SG.HEROES_DATA.length; j++) {
-        var hd = window.SG.HEROES_DATA[j];
+      for (var j = 0; j < window.SG3.HEROES_DATA.length; j++) {
+        var hd = window.SG3.HEROES_DATA[j];
         var hero = {};
         for (var hKey in hd) {
           if (hd.hasOwnProperty(hKey)) {
-            if (hKey === 'skills') {
-              hero[hKey] = hd[hKey].slice();
-            } else {
-              hero[hKey] = hd[hKey];
-            }
+            hero[hKey] = hKey === 'skills' ? hd[hKey].slice() : hd[hKey];
           }
         }
-        // 运行时字段
         hero.troops = 0;
         hero.location = null;
         hero.status = 'idle';
@@ -83,29 +76,25 @@ window.SG = window.SG || {};
         this.heroes[hero.id] = hero;
       }
 
-      // 分配武将到城市：设置location和troops
       this._assignHeroesToCities();
     },
 
-    // 将武将分配到城市，并分配兵力
+    // 分配武将到城市
     _assignHeroesToCities: function() {
       var cityId, city, heroIds, heroId, hero;
-      // 先将所有武将location置空
+      // 先清空所有武将location
       for (heroId in this.heroes) {
         if (this.heroes.hasOwnProperty(heroId)) {
           this.heroes[heroId].location = null;
         }
       }
 
-      // 遍历城市，将城内武将分配到对应城市
       for (cityId in this.cities) {
         if (!this.cities.hasOwnProperty(cityId)) continue;
         city = this.cities[cityId];
         heroIds = city.heroes;
-
         if (heroIds.length === 0) continue;
 
-        // 按武将maxTroops比例分配城市兵力
         var totalMaxTroops = 0;
         var validHeroes = [];
         for (var i = 0; i < heroIds.length; i++) {
@@ -123,18 +112,16 @@ window.SG = window.SG || {};
           hero.location = cityId;
           hero.status = 'idle';
           if (totalMaxTroops > 0) {
-            // 按maxTroops比例分配，取整
             var share = Math.floor(totalTroops * hero.maxTroops / totalMaxTroops);
             hero.troops = Math.min(share, hero.maxTroops);
             distributed += hero.troops;
           } else {
-            // 平均分配
             hero.troops = Math.floor(totalTroops / validHeroes.length);
             distributed += hero.troops;
           }
         }
 
-        // 余数分配给第一个武将，避免兵力丢失
+        // 余数分配给第一个武将
         var remainder = totalTroops - distributed;
         if (remainder > 0 && validHeroes.length > 0) {
           validHeroes[0].troops += remainder;
@@ -144,7 +131,7 @@ window.SG = window.SG || {};
         }
       }
 
-      // faction为none且不在任何城市中的武将，标记为在野
+      // 在野武将
       for (heroId in this.heroes) {
         if (!this.heroes.hasOwnProperty(heroId)) continue;
         hero = this.heroes[heroId];
@@ -155,9 +142,7 @@ window.SG = window.SG || {};
       }
     },
 
-    // ===== 查询方法 =====
-
-    // 获取某势力所有城市
+    // ===== 查询 =====
     getFactionCities: function(faction) {
       var result = [];
       for (var id in this.cities) {
@@ -168,7 +153,6 @@ window.SG = window.SG || {};
       return result;
     },
 
-    // 获取某势力所有武将
     getFactionHeroes: function(faction) {
       var result = [];
       for (var id in this.heroes) {
@@ -179,14 +163,17 @@ window.SG = window.SG || {};
       return result;
     },
 
-    // 查找武将所在城市
-    getHeroLocation: function(heroId) {
-      var hero = this.heroes[heroId];
-      if (!hero || !hero.location) return null;
-      return this.cities[hero.location] || null;
+    getCityTotalTroops: function(cityId) {
+      var city = this.cities[cityId];
+      if (!city) return 0;
+      var total = 0;
+      for (var i = 0; i < city.heroes.length; i++) {
+        var hero = this.heroes[city.heroes[i]];
+        if (hero) total += hero.troops;
+      }
+      return total;
     },
 
-    // 获取某势力金收入（商业值/10之和）
     getFactionGold: function(faction) {
       var cities = this.getFactionCities(faction);
       var total = 0;
@@ -196,7 +183,6 @@ window.SG = window.SG || {};
       return total;
     },
 
-    // 获取某势力粮收入（农业值/10之和）
     getFactionFood: function(faction) {
       var cities = this.getFactionCities(faction);
       var total = 0;
@@ -208,8 +194,11 @@ window.SG = window.SG || {};
 
     // ===== 回合结束 =====
     endTurn: function() {
-      // 1. 收集各势力资源
+      // 1. 收集资源
       var factionIds = ['wei', 'shu', 'wu', 'qun'];
+      if (this.customFactionId && this.factions[this.customFactionId]) {
+        factionIds.push(this.customFactionId);
+      }
       for (var i = 0; i < factionIds.length; i++) {
         var fId = factionIds[i];
         var fac = this.factions[fId];
@@ -218,39 +207,31 @@ window.SG = window.SG || {};
         fac.food += this.getFactionFood(fId);
       }
 
-      // 2. 城市发展：执行内政开发
+      // 2. 内政开发
       this._processDevelopment();
-
-      // 3. 城市兵力自然恢复
+      // 3. 兵力恢复
       this._recoverCityTroops();
-
-      // 4. 武将状态恢复
+      // 4. 武将恢复
       this._recoverHeroes();
-
-      // 5. AI行动（非玩家势力）
+      // 5. AI行动
       this._processAITurns();
-
       // 6. 随机事件
       this._processRandomEvents();
-
-      // 7. 行军中的军队推进
+      // 7. 行军推进
       this._processArmies();
 
-      // 8. 回合数+1
+      // 8. 回合+1
       this.turn++;
-      // 战斗触发时保留 battle 阶段（由 _processArmies → _armyArrive 设置），不覆盖回战略阶段
       if (this.phase !== 'battle') {
         this.phase = 'strategic';
       }
     },
 
-    // 执行内政开发
     _processDevelopment: function() {
       for (var cityId in this.cities) {
         if (!this.cities.hasOwnProperty(cityId)) continue;
         var city = this.cities[cityId];
         var dev = city.developAssign;
-
         if (dev.agriculture && this.heroes[dev.agriculture]) {
           var hero = this.heroes[dev.agriculture];
           var gain = Math.floor(hero.politics / 5);
@@ -267,26 +248,20 @@ window.SG = window.SG || {};
           hero2.status = 'idle';
           hero2.developTarget = null;
         }
-
-        // 重置开发分配
         city.developAssign = { agriculture: null, commerce: null };
       }
     },
 
-    // 城市兵力恢复
     _recoverCityTroops: function() {
       for (var cityId in this.cities) {
         if (!this.cities.hasOwnProperty(cityId)) continue;
         var city = this.cities[cityId];
         if (city.faction === 'none') continue;
-        // 每回合恢复maxTroops的5%
         var recovery = Math.floor(city.maxTroops * 0.05);
-        // 重新计算城市总兵力（驻守武将兵力之和）
-        var currentTotal = this._getCityTotalTroops(cityId);
+        var currentTotal = this.getCityTotalTroops(cityId);
         var newTotal = Math.min(city.maxTroops, currentTotal + recovery);
         var diff = newTotal - currentTotal;
         if (diff > 0 && city.heroes.length > 0) {
-          // 均分给所有驻守武将
           var perHero = Math.floor(diff / city.heroes.length);
           var remainder = diff - perHero * city.heroes.length;
           for (var i = 0; i < city.heroes.length; i++) {
@@ -296,48 +271,26 @@ window.SG = window.SG || {};
               hero.troops = Math.min(hero.maxTroops, hero.troops + add);
             }
           }
-          city.troops = this._getCityTotalTroops(cityId);
+          city.troops = this.getCityTotalTroops(cityId);
         }
       }
     },
 
-    // 获取城市总兵力
-    _getCityTotalTroops: function(cityId) {
-      var city = this.cities[cityId];
-      if (!city) return 0;
-      var total = 0;
-      for (var i = 0; i < city.heroes.length; i++) {
-        var hero = this.heroes[city.heroes[i]];
-        if (hero) total += hero.troops;
-      }
-      return total;
-    },
-
-    // 武将恢复
     _recoverHeroes: function() {
       for (var id in this.heroes) {
         if (!this.heroes.hasOwnProperty(id)) continue;
         var hero = this.heroes[id];
-        // HP恢复
-        if (hero.hp < hero.maxHp) {
-          hero.hp = Math.min(hero.maxHp, hero.hp + 10);
-        }
-        // SP恢复
-        if (hero.sp < hero.maxSp) {
-          hero.sp = Math.min(hero.maxSp, hero.sp + 10);
-        }
-        // 经验升级检查
+        if (hero.hp < hero.maxHp) hero.hp = Math.min(hero.maxHp, hero.hp + 10);
+        if (hero.sp < hero.maxSp) hero.sp = Math.min(hero.maxSp, hero.sp + 10);
         this._checkLevelUp(hero);
       }
     },
 
-    // 检查武将升级
     _checkLevelUp: function(hero) {
       var expNeeded = hero.level * 100;
       while (hero.exp >= expNeeded) {
         hero.exp -= expNeeded;
         hero.level++;
-        // 属性提升
         hero.maxHp += 5;
         hero.hp = hero.maxHp;
         hero.maxTroops += 500;
@@ -347,94 +300,72 @@ window.SG = window.SG || {};
       }
     },
 
-    // AI行动
     _processAITurns: function() {
       var factionIds = ['wei', 'shu', 'wu', 'qun'];
       for (var i = 0; i < factionIds.length; i++) {
         var fId = factionIds[i];
         if (fId === this.playerFaction) continue;
-        if (this.factions[fId]) {
-          if (window.SG.AIController) {
-            window.SG.AIController.takeTurn(fId);
-          }
+        if (this.factions[fId] && window.SG3.AIController) {
+          window.SG3.AIController.takeTurn(fId);
+        }
+      }
+      // 自定义AI势力
+      if (this.customFactionId && this.customFactionId !== this.playerFaction) {
+        if (this.factions[this.customFactionId] && window.SG3.AIController) {
+          window.SG3.AIController.takeTurn(this.customFactionId);
         }
       }
     },
 
-    // 随机事件
     _processRandomEvents: function() {
-      // 10%概率触发随机事件
       if (Math.random() > 0.1) return;
-
       var events = [
         { name: '丰年', desc: '今年丰收，各势力粮食+50', apply: function() {
-          for (var f in GS.factions) {
-            if (GS.factions.hasOwnProperty(f) && f !== 'none') {
-              GS.factions[f].food += 50;
-            }
-          }
+          for (var f in GD.factions) { if (GD.factions.hasOwnProperty(f) && f !== 'none') GD.factions[f].food += 50; }
         }},
         { name: '商队来访', desc: '商队来访，各势力金币+30', apply: function() {
-          for (var f in GS.factions) {
-            if (GS.factions.hasOwnProperty(f) && f !== 'none') {
-              GS.factions[f].gold += 30;
-            }
-          }
+          for (var f in GD.factions) { if (GD.factions.hasOwnProperty(f) && f !== 'none') GD.factions[f].gold += 30; }
         }},
         { name: '瘟疫', desc: '瘟疫蔓延，各城市兵力减少5%', apply: function() {
-          for (var cid in GS.cities) {
-            if (!GS.cities.hasOwnProperty(cid)) continue;
-            var city = GS.cities[cid];
+          for (var cid in GD.cities) {
+            if (!GD.cities.hasOwnProperty(cid)) continue;
+            var city = GD.cities[cid];
             for (var h = 0; h < city.heroes.length; h++) {
-              var hero = GS.heroes[city.heroes[h]];
-              if (hero) {
-                hero.troops = Math.floor(hero.troops * 0.95);
-              }
+              var hero = GD.heroes[city.heroes[h]];
+              if (hero) hero.troops = Math.floor(hero.troops * 0.95);
             }
-            city.troops = GS._getCityTotalTroops(cid);
+            city.troops = GD.getCityTotalTroops(cid);
           }
         }},
         { name: '民心不稳', desc: '民心动摇，各城市士气-5', apply: function() {
-          for (var cid in GS.cities) {
-            if (!GS.cities.hasOwnProperty(cid)) continue;
-            GS.cities[cid].morale = Math.max(0, GS.cities[cid].morale - 5);
+          for (var cid in GD.cities) {
+            if (!GD.cities.hasOwnProperty(cid)) continue;
+            GD.cities[cid].morale = Math.max(0, GD.cities[cid].morale - 5);
           }
         }}
       ];
-
       var event = events[Math.floor(Math.random() * events.length)];
       event.apply();
-
-      // 通过事件系统通知
-      if (window.SG.DialogSystem) {
-        window.SG.DialogSystem.show({
-          title: '随机事件：' + event.name,
-          content: event.desc,
-          type: 'event'
-        });
-      }
+      this._lastEvent = event;
     },
 
-    // 行军军队推进
     _processArmies: function() {
       for (var i = this.armies.length - 1; i >= 0; i--) {
         var army = this.armies[i];
         army.turnsLeft--;
         if (army.turnsLeft <= 0) {
-          // 到达目标城市，触发攻城或进驻
           this._armyArrive(army);
           this.armies.splice(i, 1);
         }
       }
     },
 
-    // 军队到达目标
     _armyArrive: function(army) {
       var targetCity = this.cities[army.targetCity];
       if (!targetCity) return;
 
       if (targetCity.faction === army.faction) {
-        // 友方城市，武将进驻
+        // 友方城市，进驻
         for (var i = 0; i < army.heroIds.length; i++) {
           var hero = this.heroes[army.heroIds[i]];
           if (hero) {
@@ -443,9 +374,9 @@ window.SG = window.SG || {};
             targetCity.heroes.push(hero.id);
           }
         }
-        targetCity.troops = this._getCityTotalTroops(targetCity.id);
+        targetCity.troops = this.getCityTotalTroops(targetCity.id);
       } else if (targetCity.heroes.length === 0) {
-        // 敌方空城（无守将），直接占领，不触发战斗
+        // 空城直接占领
         targetCity.faction = army.faction;
         targetCity.morale = 50;
         for (var k = 0; k < army.heroIds.length; k++) {
@@ -456,13 +387,13 @@ window.SG = window.SG || {};
             targetCity.heroes.push(atkHero.id);
           }
         }
-        targetCity.troops = this._getCityTotalTroops(targetCity.id);
+        targetCity.troops = this.getCityTotalTroops(targetCity.id);
       } else {
-        // 敌方城市且有守将，触发战斗
+        // 有守将，判断是否玩家参与
         var isPlayerInvolved = (army.faction === this.playerFaction) ||
                                (targetCity.faction === this.playerFaction);
-        if (isPlayerInvolved && window.SG.BattleEngine && window.SG.BattleScene) {
-          // 玩家参与的战斗，弹战斗界面
+        if (isPlayerInvolved) {
+          // 设置战斗状态，由场景系统接管
           this.battle = {
             attackerFaction: army.faction,
             defenderFaction: targetCity.faction,
@@ -472,36 +403,26 @@ window.SG = window.SG || {};
             fromCity: army.fromCity
           };
           this.phase = 'battle';
-          window.SG.BattleScene.start(this.battle);
         } else {
-          // AI之间的战斗，自动结算
+          // AI之间自动结算
           this._autoResolveBattle(army, targetCity);
         }
       }
     },
 
-    // AI之间战斗自动结算（不弹玩家战斗界面）
     _autoResolveBattle: function(army, targetCity) {
-      if (!window.SG.BattleEngine) return;
-      var state = window.SG.BattleEngine.init(
-        army.heroIds,
-        targetCity.heroes.slice(),
-        army.faction,
-        targetCity.faction
+      if (!window.SG3.BattleEngine) return;
+      var state = window.SG3.BattleEngine.init(
+        army.heroIds, targetCity.heroes.slice(), army.faction, targetCity.faction
       );
-      // 快速推进战斗直到结束
       var maxRounds = 200;
       while (state.phase !== 'ended' && maxRounds-- > 0) {
-        window.SG.BattleEngine.step();
+        window.SG3.BattleEngine.step();
       }
-      // 处理结果
       if (state.winner === 'attacker') {
-        // 攻方胜，占领城市
         targetCity.faction = army.faction;
         targetCity.morale = 50;
-        // 移除原守方武将（已被击败）
         targetCity.heroes = [];
-        // 攻方武将进驻
         for (var i = 0; i < army.heroIds.length; i++) {
           var atkHero = this.heroes[army.heroIds[i]];
           if (atkHero) {
@@ -510,9 +431,8 @@ window.SG = window.SG || {};
             targetCity.heroes.push(atkHero.id);
           }
         }
-        targetCity.troops = this._getCityTotalTroops(targetCity.id);
+        targetCity.troops = this.getCityTotalTroops(targetCity.id);
       } else {
-        // 守方胜，攻方武将撤回出发城市
         for (var j = 0; j < army.heroIds.length; j++) {
           var retHero = this.heroes[army.heroIds[j]];
           if (retHero) {
@@ -529,149 +449,92 @@ window.SG = window.SG || {};
 
     // ===== 存档 =====
     save: function(slot) {
-      var data = this.toJSON();
-      var key = SAVE_PREFIX + (slot || 0);
       try {
-        localStorage.setItem(key, JSON.stringify(data));
+        localStorage.setItem(SAVE_PREFIX + (slot || 0), JSON.stringify(this.toJSON()));
         return true;
-      } catch (e) {
-        console.error('存档失败:', e);
-        return false;
-      }
+      } catch (e) { return false; }
     },
 
     load: function(slot) {
-      var key = SAVE_PREFIX + (slot || 0);
       try {
-        var raw = localStorage.getItem(key);
+        var raw = localStorage.getItem(SAVE_PREFIX + (slot || 0));
         if (!raw) return false;
-        var data = JSON.parse(raw);
-        this.fromJSON(data);
+        this.fromJSON(JSON.parse(raw));
         return true;
-      } catch (e) {
-        console.error('读档失败:', e);
-        return false;
-      }
+      } catch (e) { return false; }
     },
 
-    // 序列化状态
     toJSON: function() {
       return {
-        turn: this.turn,
-        phase: this.phase,
-        playerFaction: this.playerFaction,
+        turn: this.turn, phase: this.phase, playerFaction: this.playerFaction,
+        customFactionId: this.customFactionId,
         factions: JSON.parse(JSON.stringify(this.factions)),
         cities: JSON.parse(JSON.stringify(this.cities)),
         heroes: JSON.parse(JSON.stringify(this.heroes)),
         armies: JSON.parse(JSON.stringify(this.armies)),
-        battle: this.battle ? JSON.parse(JSON.stringify(this.battle)) : null
+        battle: this.battle ? JSON.parse(JSON.stringify(this.battle)) : null,
+        lastEvent: this._lastEvent || null
       };
     },
 
-    // 恢复状态
     fromJSON: function(data) {
       this.turn = data.turn;
       this.phase = data.phase;
       this.playerFaction = data.playerFaction;
+      this.customFactionId = data.customFactionId || null;
       this.factions = data.factions;
       this.cities = data.cities;
       this.heroes = data.heroes;
       this.armies = data.armies || [];
       this.battle = data.battle || null;
-      this.customFactionId = data.customFactionId || null;
-
-      // 恢复自定义技能
-      if (data.customSkills) {
-        for (var skId in data.customSkills) {
-          if (data.customSkills.hasOwnProperty(skId)) {
-            window.SG.SKILLS_DATA[skId] = data.customSkills[skId];
-            if (!window.SG.CUSTOM_SKILLS) window.SG.CUSTOM_SKILLS = {};
-            window.SG.CUSTOM_SKILLS[skId] = data.customSkills[skId];
-          }
-        }
-      }
-
-      // 恢复势力名称和颜色映射
-      if (data.factionNames) {
-        if (!window.SG.FACTION_NAMES) window.SG.FACTION_NAMES = {};
-        for (var fn in data.factionNames) {
-          if (data.factionNames.hasOwnProperty(fn)) {
-            window.SG.FACTION_NAMES[fn] = data.factionNames[fn];
-          }
-        }
-      }
-      if (data.factionColors) {
-        if (!window.SG.FACTION_COLORS) window.SG.FACTION_COLORS = {};
-        for (var fc in data.factionColors) {
-          if (data.factionColors.hasOwnProperty(fc)) {
-            window.SG.FACTION_COLORS[fc] = data.factionColors[fc];
-          }
-        }
+      // 恢复自定义势力的名称和颜色
+      if (data.customFactionId) {
+        if (!window.SG3.FACTION_NAMES) window.SG3.FACTION_NAMES = {};
+        if (!window.SG3.FACTION_CSS) window.SG3.FACTION_CSS = {};
       }
     },
 
-    // 初始化自定义势力（君主）
+    // ===== 自定义君主 =====
     initCustomFaction: function(monarchName, factionName, factionColor, attrs, startCityId, customSkillData) {
       this.init();
-
       var customFactionId = 'custom_' + Date.now();
       this.customFactionId = customFactionId;
       this.playerFaction = customFactionId;
 
-      // 添加势力
       this.factions[customFactionId] = { gold: 500, food: 500 };
 
       // 注册势力名称和颜色
-      if (!window.SG.FACTION_NAMES) window.SG.FACTION_NAMES = {};
-      if (!window.SG.FACTION_COLORS) window.SG.FACTION_COLORS = {};
-      window.SG.FACTION_NAMES[customFactionId] = factionName;
-      window.SG.FACTION_COLORS[customFactionId] = factionColor;
+      window.SG3.FACTION_NAMES[customFactionId] = factionName;
+      window.SG3.FACTION_CSS[customFactionId] = factionColor;
+      window.SG3.FACTION_COLORS[customFactionId] = parseInt(factionColor.replace('#', ''), 16);
 
-      // 创建君主武将
       var monarchSkillIds = [];
       if (customSkillData) {
-        var customSkillId = window.SG.registerCustomSkill(customSkillData);
+        var customSkillId = window.SG3.registerCustomSkill(customSkillData);
         monarchSkillIds.push(customSkillId);
       }
 
       var monarchId = this._createHeroInternal({
-        name: monarchName,
-        faction: customFactionId,
-        force: attrs.force || 70,
-        intellect: attrs.intellect || 70,
-        politics: attrs.politics || 70,
-        command: attrs.command || 70,
-        charisma: attrs.charisma || 70,
-        loyalty: 100,
-        level: 5,
-        skills: monarchSkillIds,
-        advisorSkill: customSkillData ? null : 'jimou',
-        maxTroops: 8000,
-        troopType: attrs.troopType || 'infantry',
-        sp: 100,
-        maxSp: 100,
-        isMonarch: true
+        name: monarchName, faction: customFactionId,
+        force: attrs.force || 70, intellect: attrs.intellect || 70,
+        politics: attrs.politics || 70, command: attrs.command || 70,
+        charisma: attrs.charisma || 70, loyalty: 100, level: 5,
+        skills: monarchSkillIds, advisorSkill: customSkillData ? null : 'jimou',
+        maxTroops: 8000, troopType: attrs.troopType || 'infantry',
+        sp: 100, maxSp: 100, isMonarch: true
       });
 
-      // 占领起始城市
       var startCity = this.cities[startCityId];
       if (startCity) {
-        // 移除原势力的武将
         if (startCity.faction !== 'none') {
           for (var i = startCity.heroes.length - 1; i >= 0; i--) {
             var h = this.heroes[startCity.heroes[i]];
-            if (h) {
-              h.location = null;
-              h.status = 'idle';
-              h.troops = 0;
-            }
+            if (h) { h.location = null; h.status = 'idle'; h.troops = 0; }
           }
         }
         startCity.faction = customFactionId;
         startCity.heroes = [monarchId];
         startCity.troops = 3000;
-
-        // 分配兵力
         var monarch = this.heroes[monarchId];
         monarch.location = startCityId;
         monarch.troops = 3000;
@@ -681,55 +544,15 @@ window.SG = window.SG || {};
       return { factionId: customFactionId, monarchId: monarchId };
     },
 
-    // 创建自定义武将（招募用）
-    createCustomHero: function(name, attrs, troopType, skillIds, advisorSkillId, factionId, cityId) {
-      var heroId = this._createHeroInternal({
-        name: name,
-        faction: factionId,
-        force: attrs.force || 50,
-        intellect: attrs.intellect || 50,
-        politics: attrs.politics || 50,
-        command: attrs.command || 50,
-        charisma: attrs.charisma || 50,
-        loyalty: 100,
-        level: attrs.level || 1,
-        skills: skillIds || [],
-        advisorSkill: advisorSkillId || null,
-        maxTroops: 5000 + (attrs.level || 1) * 500,
-        troopType: troopType || 'infantry',
-        sp: 80,
-        maxSp: 80 + (attrs.intellect || 50) * 0.4,
-        isCustom: true
-      });
-
-      // 放置到城市
-      if (cityId && this.cities[cityId]) {
-        var city = this.cities[cityId];
-        city.heroes.push(heroId);
-        var hero = this.heroes[heroId];
-        hero.location = cityId;
-        hero.troops = 0;
-        hero.status = 'idle';
-      }
-
-      return heroId;
-    },
-
-    // 内部：创建武将对象
     _createHeroInternal: function(config) {
       var id = 'custom_hero_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
       var hero = {
-        id: id,
-        name: config.name || '无名',
-        faction: config.faction || 'none',
-        force: config.force || 50,
-        intellect: config.intellect || 50,
-        politics: config.politics || 50,
-        command: config.command || 50,
+        id: id, name: config.name || '无名', faction: config.faction || 'none',
+        force: config.force || 50, intellect: config.intellect || 50,
+        politics: config.politics || 50, command: config.command || 50,
         charisma: config.charisma || 50,
         loyalty: config.loyalty !== undefined ? config.loyalty : 100,
-        level: config.level || 1,
-        exp: 0,
+        level: config.level || 1, exp: 0,
         skills: (config.skills || []).slice(),
         advisorSkill: config.advisorSkill || null,
         maxTroops: config.maxTroops || 5000,
@@ -737,57 +560,147 @@ window.SG = window.SG || {};
         sp: config.sp !== undefined ? config.sp : 80,
         maxSp: config.maxSp !== undefined ? config.maxSp : 80,
         isMonarch: config.isMonarch || false,
-        isCustom: config.isCustom !== false
+        troops: 0, location: null, status: 'idle',
+        hp: 100, maxHp: 100, developTarget: null
       };
-      // 运行时字段
-      hero.troops = 0;
-      hero.location = null;
-      hero.status = 'idle';
-      hero.hp = 100;
-      hero.maxHp = 100;
-      hero.developTarget = null;
-
       this.heroes[id] = hero;
       return id;
     },
 
-    // 序列化状态（增强版，包含自定义数据）
-    toJSON: function() {
-      var customSkills = {};
-      if (window.SG.CUSTOM_SKILLS) {
-        for (var sId in window.SG.CUSTOM_SKILLS) {
-          if (window.SG.CUSTOM_SKILLS.hasOwnProperty(sId)) {
-            customSkills[sId] = window.SG.CUSTOM_SKILLS[sId];
-          }
-        }
+    // ===== 城市操作 =====
+    develop: function(cityId, heroId, target) {
+      var city = this.cities[cityId];
+      var hero = this.heroes[heroId];
+      if (!city || !hero) return { ok: false, msg: '城市或武将不存在' };
+      if (hero.faction !== city.faction) return { ok: false, msg: '武将不属于该城市势力' };
+      if (hero.location !== cityId) return { ok: false, msg: '武将不在该城市' };
+      if (hero.status !== 'idle') return { ok: false, msg: '武将状态不可用' };
+      if (target !== 'agriculture' && target !== 'commerce') return { ok: false, msg: '开发类型无效' };
+      if (city.developAssign[target]) {
+        var oldHero = this.heroes[city.developAssign[target]];
+        if (oldHero) { oldHero.status = 'idle'; oldHero.developTarget = null; }
       }
+      hero.status = 'developing';
+      hero.developTarget = target;
+      city.developAssign[target] = heroId;
+      return { ok: true, msg: hero.name + ' 开始开发' + (target === 'agriculture' ? '农业' : '商业') };
+    },
 
-      var factionNames = {};
-      var factionColors = {};
-      if (window.SG.FACTION_NAMES && this.customFactionId) {
-        factionNames[this.customFactionId] = window.SG.FACTION_NAMES[this.customFactionId];
+    recruit: function(cityId, amount) {
+      var city = this.cities[cityId];
+      if (!city) return { ok: false, msg: '城市不存在' };
+      if (city.faction === 'none') return { ok: false, msg: '在野城市无法征兵' };
+      var faction = this.factions[city.faction];
+      if (!faction) return { ok: false, msg: '势力不存在' };
+      var goldCost = Math.floor(amount * 0.5);
+      var foodCost = Math.floor(amount * 0.3);
+      if (faction.gold < goldCost) return { ok: false, msg: '金币不足' };
+      if (faction.food < foodCost) return { ok: false, msg: '粮食不足' };
+      var currentTroops = this.getCityTotalTroops(cityId);
+      if (currentTroops + amount > city.maxTroops) {
+        amount = city.maxTroops - currentTroops;
+        if (amount <= 0) return { ok: false, msg: '兵力已达上限' };
+        goldCost = Math.floor(amount * 0.5);
+        foodCost = Math.floor(amount * 0.3);
       }
-      if (window.SG.FACTION_COLORS && this.customFactionId) {
-        factionColors[this.customFactionId] = window.SG.FACTION_COLORS[this.customFactionId];
+      faction.gold -= goldCost;
+      faction.food -= foodCost;
+      var idleHeroes = [];
+      for (var i = 0; i < city.heroes.length; i++) {
+        var h = this.heroes[city.heroes[i]];
+        if (h && h.troops < h.maxTroops) idleHeroes.push(h);
       }
+      if (idleHeroes.length === 0) {
+        faction.gold += goldCost; faction.food += foodCost;
+        return { ok: false, msg: '没有可分配兵力的武将' };
+      }
+      var remaining = amount;
+      for (var j = 0; j < idleHeroes.length && remaining > 0; j++) {
+        var hero = idleHeroes[j];
+        var canAdd = hero.maxTroops - hero.troops;
+        var add = Math.min(remaining, canAdd);
+        hero.troops += add;
+        remaining -= add;
+      }
+      city.troops = this.getCityTotalTroops(cityId);
+      city.morale = Math.max(0, city.morale - Math.floor(amount * 0.001));
+      return { ok: true, msg: '征兵' + (amount - remaining) + '人' };
+    },
 
-      return {
-        turn: this.turn,
-        phase: this.phase,
-        playerFaction: this.playerFaction,
-        customFactionId: this.customFactionId,
-        factions: JSON.parse(JSON.stringify(this.factions)),
-        cities: JSON.parse(JSON.stringify(this.cities)),
-        heroes: JSON.parse(JSON.stringify(this.heroes)),
-        armies: JSON.parse(JSON.stringify(this.armies)),
-        battle: this.battle ? JSON.parse(JSON.stringify(this.battle)) : null,
-        customSkills: customSkills,
-        factionNames: factionNames,
-        factionColors: factionColors
-      };
+    search: function(cityId, heroId) {
+      var city = this.cities[cityId];
+      var hero = this.heroes[heroId];
+      if (!city || !hero) return { ok: false, msg: '城市或武将不存在' };
+      var available = [];
+      for (var id in this.heroes) {
+        if (!this.heroes.hasOwnProperty(id)) continue;
+        var h = this.heroes[id];
+        if (h.faction === 'none' && !h.location) available.push(h);
+      }
+      if (available.length === 0) return { ok: false, msg: '附近没有在野武将' };
+      var chance = hero.charisma * 0.5 + 10;
+      if (Math.random() * 100 > chance) {
+        hero.exp += 5;
+        return { ok: false, msg: hero.name + ' 搜索未发现武将' };
+      }
+      var found = available[Math.floor(Math.random() * available.length)];
+      found.faction = city.faction;
+      found.location = cityId;
+      found.status = 'idle';
+      found.loyalty = 50;
+      city.heroes.push(found.id);
+      hero.exp += 10;
+      return { ok: true, msg: hero.name + ' 发现了在野武将 ' + found.name + '！' };
+    },
+
+    train: function(cityId, heroId) {
+      var city = this.cities[cityId];
+      var hero = this.heroes[heroId];
+      if (!city || !hero) return { ok: false, msg: '城市或武将不存在' };
+      var increase = Math.floor(hero.command * 0.3) || 1;
+      city.morale = Math.min(100, city.morale + increase);
+      hero.exp += 5;
+      return { ok: true, msg: hero.name + ' 训练部队，士气提升' + increase };
+    },
+
+    dispatchArmy: function(fromCityId, heroIds, targetCityId) {
+      var fromCity = this.cities[fromCityId];
+      var toCity = this.cities[targetCityId];
+      if (!fromCity || !toCity) return { ok: false, msg: '城市不存在' };
+      if (fromCity.adjacent.indexOf(targetCityId) === -1) return { ok: false, msg: '目标城市不相邻' };
+      if (toCity.faction === fromCity.faction) return { ok: false, msg: '不能进攻友方城市' };
+      if (!heroIds || heroIds.length === 0) return { ok: false, msg: '未选择出征武将' };
+      var validHeroIds = [];
+      var totalTroops = 0;
+      for (var i = 0; i < heroIds.length; i++) {
+        var hero = this.heroes[heroIds[i]];
+        if (!hero) continue;
+        if (hero.location !== fromCityId) continue;
+        if (hero.faction !== fromCity.faction) continue;
+        if (hero.status !== 'idle') continue;
+        if (hero.troops <= 0) continue;
+        validHeroIds.push(heroIds[i]);
+        totalTroops += hero.troops;
+      }
+      if (validHeroIds.length === 0) return { ok: false, msg: '没有可出征的武将' };
+      for (var j = 0; j < validHeroIds.length; j++) {
+        var hid = validHeroIds[j];
+        var h = this.heroes[hid];
+        h.status = 'marching';
+        h.location = null;
+        var idx = fromCity.heroes.indexOf(hid);
+        if (idx !== -1) fromCity.heroes.splice(idx, 1);
+      }
+      fromCity.troops = this.getCityTotalTroops(fromCityId);
+      this.armies.push({
+        id: 'army_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        faction: fromCity.faction, heroIds: validHeroIds,
+        fromCity: fromCityId, targetCity: targetCityId,
+        turnsLeft: 1, speed: 1
+      });
+      return { ok: true, msg: '出兵' + validHeroIds.length + '名武将，进攻' + toCity.name };
     }
   };
 
-  window.SG.GameState = GS;
-
+  window.SG3.GameData = GD;
 })();

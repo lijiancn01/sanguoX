@@ -28,6 +28,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(8080, '0.0.0.0', () => {
-  console.log('Server running at http://localhost:8080');
+const PORT = parseInt(process.env.PORT || process.argv[2] || 8080, 10);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('Server running at http://localhost:' + PORT);
 });
