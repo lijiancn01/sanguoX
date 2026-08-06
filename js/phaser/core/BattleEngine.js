@@ -337,6 +337,7 @@ window.SG3 = window.SG3 || {};
         var fromCityId = GD.battle.fromCity;
         var fromCity = GD.cities[fromCityId];
         if (fromCity) {
+          // 存活攻方武将撤退回出发城市
           for (var n = 0; n < this.state.attacker.heroes.length; n++) {
             var retHero = this.state.attacker.heroes[n];
             if (retHero.hp > 0) {
@@ -347,6 +348,22 @@ window.SG3 = window.SG3 || {};
               }
             }
           }
+        }
+        // 被俘攻方武将（hp<=0，faction已改为获胜方）安置到目标城市
+        var defCityId = GD.battle.targetCity;
+        var defCity = GD.cities[defCityId];
+        if (defCity) {
+          for (var p = 0; p < this.state.attacker.heroes.length; p++) {
+            var capHero = this.state.attacker.heroes[p];
+            if (capHero.hp <= 0) {
+              var gsCapHero = GD.heroes[capHero.heroId];
+              if (gsCapHero) {
+                gsCapHero.location = defCityId; gsCapHero.status = 'idle'; gsCapHero.hp = 10; gsCapHero.troops = 0;
+                if (defCity.heroes.indexOf(capHero.heroId) === -1) defCity.heroes.push(capHero.heroId);
+              }
+            }
+          }
+          defCity.troops = GD.getCityTotalTroops(defCityId);
         }
       }
 
