@@ -115,17 +115,33 @@ window.SG3.MenuScene = new Phaser.Class({
 
     // 表单区域 - 使用 Phaser 文本和交互区域
     var formX = w / 2 - 200;
-    var formY = 70;
-    var lineH = 45;
+    var formY = 65;
+    var lineH = 38;
 
     // 君主姓名
     this.add.text(formX, formY, '君主姓名：', { fontSize: '16px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
-    var nameInput = this._createInputField(formX + 100, formY - 5, '请输入姓名');
+    var defaultNames = ['赵轩', '李昊', '王霆', '陈渊', '林策', '苏珩', '周瑾', '楚锋', '萧然', '韩烨'];
+    var nameInput = this._createInputField(formX + 100, formY - 5, defaultNames[Math.floor(Math.random() * defaultNames.length)]);
+    // 随机姓名按钮
+    var nameRandomBtn = scene.add.text(formX + 320, formY - 2, '🎲', { fontSize: '18px' }).setInteractive({ useHandCursor: true });
+    nameRandomBtn.on('pointerdown', function() {
+      var randName = defaultNames[Math.floor(Math.random() * defaultNames.length)];
+      nameInput.setText(randName);
+      nameInput.text = randName;
+    });
     formY += lineH;
 
     // 势力名称
     this.add.text(formX, formY, '势力名称：', { fontSize: '16px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
-    var factionInput = this._createInputField(formX + 100, formY - 5, '请输入势力名');
+    var defaultFactions = ['龙吟', '凤鸣', '虎啸', '鹰扬', '麒麟', '玄武', '朱雀', '青龙', '白虎', '天策'];
+    var factionInput = this._createInputField(formX + 100, formY - 5, defaultFactions[Math.floor(Math.random() * defaultFactions.length)]);
+    // 随机势力名按钮
+    var factionRandomBtn = scene.add.text(formX + 320, formY - 2, '🎲', { fontSize: '18px' }).setInteractive({ useHandCursor: true });
+    factionRandomBtn.on('pointerdown', function() {
+      var randFaction = defaultFactions[Math.floor(Math.random() * defaultFactions.length)];
+      factionInput.setText(randFaction);
+      factionInput.text = randFaction;
+    });
     formY += lineH;
 
     // 势力颜色选择
@@ -175,7 +191,7 @@ window.SG3.MenuScene = new Phaser.Class({
     var tNext = this.add.text(formX + 190, formY, '>', { fontSize: '20px', color: '#e8d4b0' }).setInteractive({ useHandCursor: true });
     tPrev.on('pointerdown', function() { troopIdx = (troopIdx - 1 + troopTypes.length) % troopTypes.length; troopText.setText(troopTypes[troopIdx].label); });
     tNext.on('pointerdown', function() { troopIdx = (troopIdx + 1) % troopTypes.length; troopText.setText(troopTypes[troopIdx].label); });
-    formY += lineH + 10;
+    formY += lineH + 5;
 
     // 属性分配
     var attrPoints = 350;
@@ -192,12 +208,12 @@ window.SG3.MenuScene = new Phaser.Class({
     // Fix: recalculate remaining
     var calcRemain = function() { var used = 0; for (var k in attrs) used += attrs[k]; return attrPoints - used; };
     remainText.setText('属性分配（剩余点数：' + calcRemain() + '）');
-    formY += 35;
+    formY += 28;
 
     var attrValTexts = {};
     for (var ai = 0; ai < attrNames.length; ai++) {
       (function(attrInfo) {
-        var y = formY + ai * 40;
+        var y = formY + ai * 34;
         scene.add.text(formX, y, attrInfo.label, { fontSize: '15px', color: attrInfo.color, fontFamily: '"Microsoft YaHei", "SimHei", serif' });
 
         // -10
@@ -253,15 +269,23 @@ window.SG3.MenuScene = new Phaser.Class({
       })(attrNames[ai]);
     }
 
-    formY += attrNames.length * 40 + 20;
+    formY += attrNames.length * 34 + 15;
 
     // 专属武将技设计 - 简化版
     this.add.text(w / 2, formY, '专属武将技', { fontSize: '16px', color: '#ffd700', fontFamily: '"Microsoft YaHei", "SimHei", serif' }).setOrigin(0.5);
-    formY += 30;
+    formY += 25;
 
     this.add.text(formX, formY, '技能名称：', { fontSize: '14px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
-    var skillInput = this._createInputField(formX + 100, formY - 3, '专属技', 150);
-    formY += 35;
+    var defaultSkills = ['霸王斩', '龙魂破', '凤舞九天', '虎啸山林', '玄武护体', '雷霆万钧', '烈焰焚天', '冰封万里', '星辰陨落', '天命所归'];
+    var skillInput = this._createInputField(formX + 100, formY - 3, defaultSkills[Math.floor(Math.random() * defaultSkills.length)], 150);
+    // 随机技能名按钮
+    var skillRandomBtn = scene.add.text(formX + 270, formY - 2, '🎲', { fontSize: '16px' }).setInteractive({ useHandCursor: true });
+    skillRandomBtn.on('pointerdown', function() {
+      var randSkill = defaultSkills[Math.floor(Math.random() * defaultSkills.length)];
+      skillInput.setText(randSkill);
+      skillInput.text = randSkill;
+    });
+    formY += 30;
 
     // 效果类型
     this.add.text(formX, formY, '效果类型：', { fontSize: '14px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
@@ -273,7 +297,7 @@ window.SG3.MenuScene = new Phaser.Class({
     var eNext = scene.add.text(formX + 175, formY, '>', { fontSize: '16px', color: '#e8d4b0' }).setInteractive({ useHandCursor: true });
     ePrev.on('pointerdown', function() { effectIdx = (effectIdx - 1 + effectTypes.length) % effectTypes.length; effectText.setText(effectLabels[effectIdx]); });
     eNext.on('pointerdown', function() { effectIdx = (effectIdx + 1) % effectTypes.length; effectText.setText(effectLabels[effectIdx]); });
-    formY += 35;
+    formY += 30;
 
     // 技能威力
     this.add.text(formX, formY, '技能威力：', { fontSize: '14px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
@@ -283,7 +307,7 @@ window.SG3.MenuScene = new Phaser.Class({
     var pwrP = scene.add.text(formX + 165, formY, '+', { fontSize: '16px', color: '#e8d4b0', backgroundColor: '#333', padding: {x:4,y:2} }).setInteractive({ useHandCursor: true });
     pwrM.on('pointerdown', function() { powerVal = Math.max(30, powerVal - 10); powerText.setText('' + powerVal); });
     pwrP.on('pointerdown', function() { powerVal = Math.min(150, powerVal + 10); powerText.setText('' + powerVal); });
-    formY += 35;
+    formY += 30;
 
     // 技力消耗
     this.add.text(formX, formY, '技力消耗：', { fontSize: '14px', color: '#c4a882', fontFamily: '"Microsoft YaHei", "SimHei", serif' });
@@ -293,17 +317,17 @@ window.SG3.MenuScene = new Phaser.Class({
     var cstP = scene.add.text(formX + 165, formY, '+', { fontSize: '16px', color: '#e8d4b0', backgroundColor: '#333', padding: {x:4,y:2} }).setInteractive({ useHandCursor: true });
     cstM.on('pointerdown', function() { costVal = Math.max(10, costVal - 5); costText.setText('' + costVal); });
     cstP.on('pointerdown', function() { costVal = Math.min(60, costVal + 5); costText.setText('' + costVal); });
-    formY += 50;
+    formY += 45;
 
     // 按钮
     this._createButton(w / 2 - 100, formY, '开始游戏', '#ffd700', function() {
       var name = nameInput.text;
       var factionName = factionInput.text;
-      if (!name || name === '请输入姓名') { scene._showToast('请输入君主姓名'); return; }
-      if (!factionName || factionName === '请输入势力名') { scene._showToast('请输入势力名称'); return; }
+      if (!name || !name.trim()) { scene._showToast('请输入君主姓名'); return; }
+      if (!factionName || !factionName.trim()) { scene._showToast('请输入势力名称'); return; }
       if (noneCities.length === 0) { scene._showToast('无在野空城可用'); return; }
 
-      var skillName = skillInput.text || '专属技';
+      var skillName = (skillInput.text && skillInput.text.trim()) ? skillInput.text.trim() : '专属技';
       var customSkillData = {
         name: skillName,
         effectType: effectTypes[effectIdx],

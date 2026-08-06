@@ -539,6 +539,26 @@ window.SG3 = window.SG3 || {};
         monarch.location = startCityId;
         monarch.troops = 3000;
         monarch.status = 'idle';
+
+        // 为自定义君主分配2名初始部将，避免君主做内政时无人可出征
+        var freeHeroes = [];
+        for (var fhId in this.heroes) {
+          if (!this.heroes.hasOwnProperty(fhId)) continue;
+          var fh = this.heroes[fhId];
+          if (fh.faction === 'none' && !fh.location) freeHeroes.push(fh);
+        }
+        var generalCount = Math.min(2, freeHeroes.length);
+        for (var gi = 0; gi < generalCount; gi++) {
+          var pickIdx = Math.floor(Math.random() * freeHeroes.length);
+          var general = freeHeroes.splice(pickIdx, 1)[0];
+          general.faction = customFactionId;
+          general.location = startCityId;
+          general.status = 'idle';
+          general.loyalty = 80;
+          general.troops = 1000;
+          startCity.heroes.push(general.id);
+        }
+        startCity.troops = this.getCityTotalTroops(startCityId);
       }
 
       return { factionId: customFactionId, monarchId: monarchId };
@@ -648,6 +668,7 @@ window.SG3 = window.SG3 || {};
       found.location = cityId;
       found.status = 'idle';
       found.loyalty = 50;
+      found.troops = 800; // 搜索招募的武将自带初始兵力，确保可出征
       city.heroes.push(found.id);
       hero.exp += 10;
       return { ok: true, msg: hero.name + ' 发现了在野武将 ' + found.name + '！' };
@@ -677,7 +698,8 @@ window.SG3 = window.SG3 || {};
         if (!hero) continue;
         if (hero.location !== fromCityId) continue;
         if (hero.faction !== fromCity.faction) continue;
-        if (hero.status !== 'idle') continue;
+        // 允许 idle 和 developing 状态武将出征，marching 状态除外
+        if (hero.status === 'marching') continue;
         if (hero.troops <= 0) continue;
         validHeroIds.push(heroIds[i]);
         totalTroops += hero.troops;
@@ -686,6 +708,12 @@ window.SG3 = window.SG3 || {};
       for (var j = 0; j < validHeroIds.length; j++) {
         var hid = validHeroIds[j];
         var h = this.heroes[hid];
+        // 若武将在做内政，自动取消内政任务
+        if (h.status === 'developing' && fromCity.developAssign) {
+          if (fromCity.developAssign.agriculture === hid) fromCity.developAssign.agriculture = null;
+          if (fromCity.developAssign.commerce === hid) fromCity.developAssign.commerce = null;
+          h.developTarget = null;
+        }
         h.status = 'marching';
         h.location = null;
         var idx = fromCity.heroes.indexOf(hid);

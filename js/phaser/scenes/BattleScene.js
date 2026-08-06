@@ -196,8 +196,20 @@ window.SG3.BattleScene = new Phaser.Class({
         var evt = events[i];
         if (evt.type === 'attack') {
           this._addLog(evt.attackerName + ' 攻击 ' + evt.defenderName + ' 伤兵' + evt.troopDamage + ' HP' + evt.hpDamage);
+          // 处理嵌套在攻击事件中的天命觉醒
+          if (evt.destiny) {
+            var d = evt.destiny;
+            this._addLog('【天命觉醒】' + d.heroName + ' HP锁血至' + d.lockedHp + '，全属性提升' + d.statBoost + '！');
+            // 显示陨石击杀信息
+            for (var mi = 0; mi < d.meteorTargets.length; mi++) {
+              this._addLog('  陨石砸中 ' + d.meteorTargets[mi].name + '，消灭士兵' + d.meteorTargets[mi].killedTroops);
+            }
+          }
         } else if (evt.type === 'advisorSkill') {
           this._addLog(evt.sourceName + ' 施展军师技「' + evt.skillName + '」');
+        } else if (evt.type === 'destiny') {
+          // 顶层天命觉醒事件（兼容）
+          this._addLog('【天命觉醒】' + evt.heroName + ' HP锁血至' + evt.lockedHp + '，全属性提升' + evt.statBoost + '！');
         } else if (evt.type === 'battleEnd') {
           this._addLog(evt.winner === 'attacker' ? '攻方获胜！' : '守方获胜！');
         }

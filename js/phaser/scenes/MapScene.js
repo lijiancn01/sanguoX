@@ -214,6 +214,7 @@ window.SG3.MapScene = new Phaser.Class({
 
     // 按钮
     var scene = this;
+    this._createHUDButton(w - 470, '我的城池', '#88ccff', function() { scene._showMyCitiesPanel(); }).setDepth(21);
     this._createHUDButton(w - 400, '结束回合', '#ffd700', function() { scene._onEndTurn(); }).setDepth(21);
     this._createHUDButton(w - 300, '存档', '#c4a882', function() { GD.save(0); scene._showToast('存档成功'); }).setDepth(21);
     this._createHUDButton(w - 220, '读档', '#c4a882', function() { if (GD.load(0)) { scene._refreshAll(); scene._showToast('读档成功'); } }).setDepth(21);
@@ -455,14 +456,44 @@ window.SG3.MapScene = new Phaser.Class({
     var GD = this._gd;
     var fromCity = GD.cities[fromCityId];
     if (!fromCity) return;
+    var scene = this;
 
-    // 可选武将
+    // 统计城市中所有武将的状态
+    var allHeroes = [];
     var availableHeroes = [];
     for (var i = 0; i < fromCity.heroes.length; i++) {
       var hero = GD.heroes[fromCity.heroes[i]];
-      if (hero && hero.status === 'idle' && hero.troops > 0) availableHeroes.push(hero);
+      if (!hero) continue;
+      allHeroes.push(hero);
+      // 出征条件：状态为idle或developing（自动取消内政）且兵力>0
+      if ((hero.status === 'idle' || hero.status === 'developing') && hero.troops > 0) {
+        availableHeroes.push(hero);
+      }
     }
-    if (availableHeroes.length === 0) { this._showToast('没有可出征的武将'); return; }
+
+    // 无可出征武将时，给出明确的错误原因
+    if (availableHeroes.length === 0) {
+      var reason = '没有可出征的武将';
+      if (allHeroes.length === 0) {
+        reason = '城中无武将';
+      } else {
+        var noTroopsCount = 0;
+        var developingCount = 0;
+        for (var si = 0; si < allHeroes.length; si++) {
+          if (allHeroes[si].troops <= 0) noTroopsCount++;
+          if (allHeroes[si].status === 'developing') developingCount++;
+        }
+        if (noTroopsCount === allHeroes.length) {
+          reason = '武将均无兵力，请先征兵';
+        } else if (developingCount === allHeroes.length) {
+          reason = '武将都在内政，请先结束回合或等待内政完成';
+        } else {
+          reason = '武将状态或兵力不满足出征条件';
+        }
+      }
+      this._showToast(reason);
+      return;
+    }
 
     // 目标城市
     var targetCities = [];
@@ -472,21 +503,148 @@ window.SG3.MapScene = new Phaser.Class({
     }
     if (targetCities.length === 0) { this._showToast('没有可进攻的相邻城市'); return; }
 
-    // 简化：自动选前3个空闲武将，攻击最弱目标
-    var selectedHeroes = availableHeroes.slice(0, Math.min(3, availableHeroes.length));
-    var heroIds = [];
-    for (var k = 0; k < selectedHeroes.length; k++) heroIds.push(selectedHeroes[k].id);
+    // === 显示出征选择面板 ===
+    this._panelContainer.removeAll(true);
+    this._panelVisible = true;
 
+    var panelW = 360;
+    var panelH = this._ch - 100;
+    var panelBg = this.add.graphics();
+    panelBg.fillGradientStyle(0xf8f3ea, 0xf8f3ea, 0xf0e8d8, 0xf0e8d8, 1);
+    panelBg.fillRect(0, 0, panelW, panelH);
+    panelBg.lineStyle(2, 0x8a7a5a, 1);
+    panelBg.strokeRect(0, 0, panelW, panelH);
+    this._panelContainer.add(panelBg);
+    this._panelContainer.x = this._cw - panelW - 20;
+    this._panelContainer.y = 50;
+
+    var y = 15;
+    // 标题
+    this._panelContainer.add(this.add.text(panelW / 2, y, '出征 - ' + fromCity.name, {
+      fontSize: '16px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#3a2a1a', fontStyle: 'bold'
+    }).setOrigin(0.5));
+    y += 28;
+
+    // === 选择武将 ===
+    this._panelContainer.add(this.add.text(15, y, '选择出征武将（可多选）', {
+      fontSize: '13px', color: '#5a4a3a', fontStyle: 'bold', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+    }));
+    y += 20;
+
+    // 默认全选所有可用武将
+    var selectedHeroIds = {};
+    for (var sh = 0; sh < availableHeroes.length; sh++) {
+      selectedHeroIds[availableHeroes[sh].id] = true;
+    }
+
+    var heroCheckboxes = [];
+    for (var hi = 0; hi < availableHeroes.length; hi++) {
+      (function(hero) {
+        var statusLabel = hero.status === 'developing' ? '(内政)' : '';
+        var heroText = hero.name + '  兵' + hero.troops + statusLabel;
+        var cb = scene.add.text(20, y, '[✓] ' + heroText, {
+          fontSize: '12px', color: '#3a2a1a', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+          backgroundColor: selectedHeroIds[hero.id] ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)',
+          padding: { x: 4, y: 2 }
+        }).setInteractive({ useHandCursor: true });
+
+        cb.on('pointerdown', function() {
+          selectedHeroIds[hero.id] = !selectedHeroIds[hero.id];
+          cb.setText('[' + (selectedHeroIds[hero.id] ? '✓' : ' ') + '] ' + heroText);
+          cb.setBackgroundColor(selectedHeroIds[hero.id] ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)');
+        });
+
+        scene._panelContainer.add(cb);
+        heroCheckboxes.push(cb);
+        y += 20;
+      })(availableHeroes[hi]);
+    }
+    y += 8;
+
+    // === 选择目标城市 ===
+    this._panelContainer.add(this.add.text(15, y, '选择目标城市', {
+      fontSize: '13px', color: '#5a4a3a', fontStyle: 'bold', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+    }));
+    y += 20;
+
+    // 默认选最弱目标
     var weakest = targetCities[0];
     var weakestTroops = GD.getCityTotalTroops(weakest.id);
     for (var m = 1; m < targetCities.length; m++) {
       var tTroops = GD.getCityTotalTroops(targetCities[m].id);
       if (tTroops < weakestTroops) { weakest = targetCities[m]; weakestTroops = tTroops; }
     }
+    var selectedTargetId = weakest.id;
 
-    var result = GD.dispatchArmy(fromCityId, heroIds, weakest.id);
-    this._showToast(result.msg);
-    this._refreshAll();
+    var targetRadios = [];
+    var targetTexts = [];
+    for (var ti = 0; ti < targetCities.length; ti++) {
+      (function(targetCity) {
+        var targetTroops = GD.getCityTotalTroops(targetCity.id);
+        var targetFactionName = (window.SG3.FACTION_NAMES && window.SG3.FACTION_NAMES[targetCity.faction]) || targetCity.faction;
+        var targetText = targetCity.name + '(' + targetFactionName + ',兵' + targetTroops + ')';
+        targetTexts.push(targetText);
+        var radio = scene.add.text(20, y, '(' + (targetCity.id === selectedTargetId ? '●' : '○') + ') ' + targetText, {
+          fontSize: '12px', color: '#3a2a1a', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+          backgroundColor: targetCity.id === selectedTargetId ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)',
+          padding: { x: 4, y: 2 }
+        }).setInteractive({ useHandCursor: true });
+
+        radio.on('pointerdown', function() {
+          selectedTargetId = targetCity.id;
+          for (var r = 0; r < targetRadios.length; r++) {
+            // 更新文字前缀和背景色
+            var rCity = targetCities[r];
+            var rText = targetTexts[r];
+            targetRadios[r].setText('(' + (rCity.id === selectedTargetId ? '●' : '○') + ') ' + rText);
+            targetRadios[r].setBackgroundColor(rCity.id === selectedTargetId ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)');
+          }
+        });
+
+        scene._panelContainer.add(radio);
+        targetRadios.push(radio);
+        y += 20;
+      })(targetCities[ti]);
+    }
+    y += 10;
+
+    // === 确认出征按钮 ===
+    var confirmBtn = this.add.text(panelW / 2 - 80, y, '确认出征', {
+      fontSize: '14px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#ffd700', backgroundColor: '#6a3a0a',
+      padding: { x: 16, y: 6 }
+    }).setInteractive({ useHandCursor: true });
+
+    confirmBtn.on('pointerdown', function() {
+      // 收集选中的武将ID
+      var heroIds = [];
+      for (var hid in selectedHeroIds) {
+        if (selectedHeroIds[hid]) heroIds.push(hid);
+      }
+      if (heroIds.length === 0) {
+        scene._showToast('请至少选择一名武将');
+        return;
+      }
+      var result = GD.dispatchArmy(fromCityId, heroIds, selectedTargetId);
+      scene._showToast(result.msg);
+      scene._panelContainer.removeAll(true);
+      scene._panelVisible = false;
+      scene._refreshAll();
+    });
+
+    var cancelBtn = this.add.text(panelW / 2 + 20, y, '取消', {
+      fontSize: '14px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#c4a882', backgroundColor: '#3a2a1a',
+      padding: { x: 16, y: 6 }
+    }).setInteractive({ useHandCursor: true });
+
+    cancelBtn.on('pointerdown', function() {
+      scene._panelContainer.removeAll(true);
+      scene._panelVisible = false;
+    });
+
+    this._panelContainer.add([confirmBtn, cancelBtn]);
   },
 
   _onEndTurn: function() {
@@ -532,6 +690,206 @@ window.SG3.MapScene = new Phaser.Class({
       this._panelContainer.removeAll(true);
       this._panelVisible = false;
     }
+  },
+
+  // 我的城池快速定位面板
+  _showMyCitiesPanel: function() {
+    var GD = this._gd;
+    var scene = this;
+
+    // 清除旧面板
+    this._panelContainer.removeAll(true);
+    this._panelVisible = true;
+
+    var panelW = 320;
+    var panelH = this._ch - 100;
+    this._panelContainer.x = this._cw - panelW - 10;
+    this._panelContainer.y = 50;
+
+    // 面板背景
+    var panelBg = this.add.graphics();
+    panelBg.fillStyle(0xf8f3ea, 1);
+    panelBg.fillRect(0, 0, panelW, panelH);
+    panelBg.lineStyle(2, 0x8a7a5a, 1);
+    panelBg.strokeRect(0, 0, panelW, panelH);
+    this._panelContainer.add(panelBg);
+
+    // 标题
+    this._panelContainer.add(this.add.text(panelW / 2, 18, '我的城池', {
+      fontSize: '18px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#5a3a1a', fontStyle: 'bold'
+    }).setOrigin(0.5));
+
+    // 收集玩家城市
+    var myCities = [];
+    for (var cid in GD.cities) {
+      if (!GD.cities.hasOwnProperty(cid)) continue;
+      if (GD.cities[cid].faction === GD.playerFaction) {
+        myCities.push(GD.cities[cid]);
+      }
+    }
+
+    // 武将状态中文映射
+    var statusMap = {
+      'idle': '待命',
+      'developing': '内政',
+      'marching': '行军'
+    };
+    var statusColorMap = {
+      'idle': '#5a8a5a',
+      'developing': '#daa520',
+      'marching': '#cc4444'
+    };
+
+    // 内容容器（可滚动）
+    var contentY = 45;
+    var expandedCities = {}; // 记录每个城市的展开状态
+
+    // 渲染函数：根据当前展开状态重新渲染列表
+    var renderList = function() {
+      // 移除标题和背景以外的所有元素（保留panelBg和标题）
+      var toRemove = [];
+      var children = scene._panelContainer.list;
+      for (var i = 0; i < children.length; i++) {
+        if (children[i] === panelBg) continue;
+        if (children[i].text === '我的城池') continue;
+        toRemove.push(children[i]);
+      }
+      for (var j = 0; j < toRemove.length; j++) {
+        scene._panelContainer.remove(toRemove[j], true);
+      }
+
+      var y = contentY;
+
+      for (var k = 0; k < myCities.length; k++) {
+        var city = myCities[k];
+        var troops = GD.getCityTotalTroops(city.id);
+        var heroCount = city.heroes.length;
+        var isExpanded = !!expandedCities[city.id];
+
+        // 城市行（可点击展开/折叠）
+        var expandMark = isExpanded ? '▼' : '▶';
+        var cityRow = scene.add.text(10, y, expandMark + ' ' + city.name + '  兵' + troops + '  将' + heroCount, {
+          fontSize: '14px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+          color: '#3a2a1a', fontStyle: 'bold',
+          backgroundColor: 'rgba(138,122,90,0.15)',
+          padding: { x: 4, y: 3 }
+        }).setInteractive({ useHandCursor: true });
+
+        (function(c) {
+          cityRow.on('pointerdown', function() {
+            expandedCities[c.id] = !expandedCities[c.id];
+            renderList();
+          });
+        })(city);
+        scene._panelContainer.add(cityRow);
+        y += 24;
+
+        // 展开时显示武将详情
+        if (isExpanded) {
+          if (city.heroes.length === 0) {
+            scene._panelContainer.add(scene.add.text(20, y, '（无武将）', {
+              fontSize: '12px', color: '#9a8a7a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+            }));
+            y += 18;
+          } else {
+            for (var h = 0; h < city.heroes.length; h++) {
+              var hero = GD.heroes[city.heroes[h]];
+              if (!hero) continue;
+              var statusText = statusMap[hero.status] || hero.status;
+              var statusColor = statusColorMap[hero.status] || '#3a2a1a';
+              var devTargetText = '';
+              if (hero.status === 'developing' && hero.developTarget) {
+                var devName = hero.developTarget === 'agriculture' ? '农业' : '商业';
+                devTargetText = '(' + devName + ')';
+              }
+              // 君主标记：名称前加【君主】，用金色高亮
+              var isMonarch = hero.isMonarch;
+              var heroPrefix = isMonarch ? '★【君主】' : '';
+              var heroNameColor = isMonarch ? '#cc6600' : '#3a2a1a';
+              var heroBgColor = isMonarch ? 'rgba(255,215,0,0.25)' : null;
+              var heroFontStyle = isMonarch ? 'bold' : 'normal';
+              // 武将名 + 兵力 + HP + 状态
+              var heroLine = scene.add.text(20, y,
+                heroPrefix + hero.name + '  兵' + hero.troops + '/' + hero.maxTroops +
+                '  HP' + hero.hp + '/' + hero.maxHp +
+                '  ' + statusText + devTargetText,
+                {
+                  fontSize: isMonarch ? '13px' : '12px',
+                  fontFamily: '"Microsoft YaHei", "SimHei", serif',
+                  color: heroNameColor,
+                  fontStyle: heroFontStyle,
+                  backgroundColor: heroBgColor,
+                  padding: isMonarch ? { x: 4, y: 2 } : { x: 0, y: 0 }
+                });
+              scene._panelContainer.add(heroLine);
+              y += 16;
+
+              // 第二行：属性摘要
+              var attrLine = scene.add.text(28, y,
+                '武' + hero.force + ' 智' + hero.intellect + ' 统' + hero.command +
+                ' 政' + hero.politics + ' 魅' + hero.charisma +
+                ' 士气' + (hero.morale || 0),
+                {
+                  fontSize: '10px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+                  color: isMonarch ? '#8a5a00' : '#7a6a5a',
+                  fontStyle: isMonarch ? 'bold' : 'normal'
+                });
+              scene._panelContainer.add(attrLine);
+              y += 14;
+
+              // 状态颜色标记（小色块）
+              var statusDot = scene.add.text(14, y - 30, '●', {
+                fontSize: '10px', color: statusColor, fontFamily: '"Microsoft YaHei", "SimHei", serif'
+              });
+              scene._panelContainer.add(statusDot);
+            }
+          }
+          // 进入城市操作按钮（出征、开发、搜索等）
+          var enterBtn = scene.add.text(20, y, '进入城市操作 ▶', {
+            fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+            color: '#ffffff', backgroundColor: '#6a3a0a',
+            padding: { x: 8, y: 3 }
+          }).setInteractive({ useHandCursor: true });
+          (function(c) {
+            enterBtn.on('pointerdown', function() {
+              // 定位到该城市：移动地图容器使城市居中
+              var targetX = scene._cw / 2 - c.x;
+              var targetY = scene._ch / 2 - c.y;
+              scene._mapContainer.x = targetX;
+              scene._mapContainer.y = targetY;
+              // 关闭"我的城池"面板，打开城市详情面板（含出征、开发、搜索按钮）
+              scene._panelContainer.removeAll(true);
+              scene._panelVisible = false;
+              scene._showCityPanel(c.id);
+            });
+          })(city);
+          scene._panelContainer.add(enterBtn);
+          y += 24;
+          y += 4; // 城市间距
+        }
+      }
+
+      // 空状态
+      if (myCities.length === 0) {
+        scene._panelContainer.add(scene.add.text(panelW / 2, y + 10, '暂无城池', {
+          fontSize: '14px', color: '#9a8a7a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+        }).setOrigin(0.5));
+      }
+
+      // 重新添加关闭按钮
+      var closeBtn = scene.add.text(panelW / 2, panelH - 30, '关闭', {
+        fontSize: '14px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+        color: '#cc4444', backgroundColor: 'rgba(0,0,0,0.1)', padding: { x: 16, y: 6 }
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      closeBtn.on('pointerdown', function() {
+        scene._panelContainer.removeAll(true);
+        scene._panelVisible = false;
+      });
+      scene._panelContainer.add(closeBtn);
+    };
+
+    renderList();
   },
 
   _showToast: function(msg) {
