@@ -419,7 +419,12 @@ window.SG3 = window.SG3 || {};
       while (state.phase !== 'ended' && maxRounds-- > 0) {
         window.SG3.BattleEngine.step();
       }
-      if (state.winner === 'attacker') {
+      // 兜底：若引擎未自然结束（不应发生），强制按剩余战力判定
+      if (state.phase !== 'ended') {
+        window.SG3.BattleEngine._forceEndByTimeout();
+      }
+      var winner = state.winner || 'defender'; // 最终保险
+      if (winner === 'attacker') {
         targetCity.faction = army.faction;
         targetCity.morale = 50;
         targetCity.heroes = [];
@@ -468,6 +473,8 @@ window.SG3 = window.SG3 || {};
       return {
         turn: this.turn, phase: this.phase, playerFaction: this.playerFaction,
         customFactionId: this.customFactionId,
+        customFactionName: this.customFactionId ? (window.SG3.FACTION_NAMES[this.customFactionId] || null) : null,
+        customFactionColor: this.customFactionId ? (window.SG3.FACTION_CSS[this.customFactionId] || null) : null,
         factions: JSON.parse(JSON.stringify(this.factions)),
         cities: JSON.parse(JSON.stringify(this.cities)),
         heroes: JSON.parse(JSON.stringify(this.heroes)),
@@ -488,9 +495,17 @@ window.SG3 = window.SG3 || {};
       this.armies = data.armies || [];
       this.battle = data.battle || null;
       // 恢复自定义势力的名称和颜色
-      if (data.customFactionId) {
+      if (this.customFactionId) {
         if (!window.SG3.FACTION_NAMES) window.SG3.FACTION_NAMES = {};
         if (!window.SG3.FACTION_CSS) window.SG3.FACTION_CSS = {};
+        if (!window.SG3.FACTION_COLORS) window.SG3.FACTION_COLORS = {};
+        if (data.customFactionName) {
+          window.SG3.FACTION_NAMES[this.customFactionId] = data.customFactionName;
+        }
+        if (data.customFactionColor) {
+          window.SG3.FACTION_CSS[this.customFactionId] = data.customFactionColor;
+          window.SG3.FACTION_COLORS[this.customFactionId] = parseInt(data.customFactionColor.replace('#', ''), 16);
+        }
       }
     },
 

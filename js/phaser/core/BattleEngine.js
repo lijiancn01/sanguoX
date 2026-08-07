@@ -26,7 +26,7 @@ window.SG3 = window.SG3 || {};
         attacker: { faction: attackerFaction, heroes: [] },
         defender: { faction: defenderFaction, heroes: [] },
         turn: 0, phase: 'prepare', log: [],
-        winner: null, duelState: null, destinyTriggered: false
+        winner: null, duelState: null, destinyTriggered: { attacker: false, defender: false }
       };
 
       for (var i = 0; i < attackerHeroes.length && i < 5; i++) {
@@ -73,6 +73,10 @@ window.SG3 = window.SG3 || {};
       if (this._checkWinCondition()) {
         this.state.phase = 'ended';
         events.push({ type: 'battleEnd', winner: this.state.winner });
+      } else if (this.state.turn >= 200) {
+        // 超时兜底：按剩余战力判定胜负，防止战斗无限循环
+        this._forceEndByTimeout();
+        events.push({ type: 'battleEnd', winner: this.state.winner });
       }
       return events;
     },
@@ -117,6 +121,8 @@ window.SG3 = window.SG3 || {};
       var defData = GD.heroes[defender.heroId];
       var atkName = atkData ? atkData.name : attacker.heroId;
       var defName = defData ? defData.name : defender.heroId;
+      var defenderSide = (side === 'attacker') ? 'defender' : 'attacker';
+      var isPlayerMonarch = defData && defData.isMonarch && this.state[defenderSide].faction === GD.playerFaction;
       var event = { type: 'attack', attacker: attacker.heroId, attackerName: atkName, defender: defender.heroId, defenderName: defName, side: side, troopDamage: 0, hpDamage: 0 };
 
       if (attacker.troops > 0 && (defender.troops > 0 || defender.hp > 0)) {
@@ -136,9 +142,9 @@ window.SG3 = window.SG3 || {};
             event.hpDamage = 0;
           } else {
             var hpLoss = Math.min(defender.hp, dmg);
-            // 预判：如果防守方是君主且这次伤害会让HP低于10%阈值，则只扣到阈值不扣到0
+            // 预判：玩家君主HP保护，不扣到10%阈值以下（AI君主不受保护）
             var threshold = Math.floor(defender.maxHp * 0.1);
-            if (defData && defData.isMonarch && !this.state.destinyTriggered && (defender.hp - hpLoss) <= threshold) {
+            if (isPlayerMonarch && !this.state.destinyTriggered[defenderSide] && (defender.hp - hpLoss) <= threshold) {
               hpLoss = Math.max(0, defender.hp - threshold);
             }
             defender.hp -= hpLoss;
@@ -157,9 +163,9 @@ window.SG3 = window.SG3 || {};
           event.hpDamage += 0;
         } else {
           var actualDmg = Math.min(defender.hp, heroDmg);
-          // 预判：君主HP保护，不扣到10%阈值以下
+          // 预判：玩家君主HP保护，不扣到10%阈值以下
           var threshold2 = Math.floor(defender.maxHp * 0.1);
-          if (defData && defData.isMonarch && !this.state.destinyTriggered && (defender.hp - actualDmg) <= threshold2) {
+          if (isPlayerMonarch && !this.state.destinyTriggered[defenderSide] && (defender.hp - actualDmg) <= threshold2) {
             actualDmg = Math.max(0, defender.hp - threshold2);
           }
           defender.hp -= actualDmg;
@@ -168,8 +174,7 @@ window.SG3 = window.SG3 || {};
       }
 
       // 天命之子：在防守方HP可能被打到10%以下时触发（包括HP已<=0的情况）
-      // 注意：传给_checkDestiny的side应为被攻击方（君主）的阵营，而非攻击方
-      var defenderSide = (side === 'attacker') ? 'defender' : 'attacker';
+      // defenderSide已在函数开头计算
       var destinyEvent = this._checkDestiny(defender, defData, defName, defenderSide);
       if (destinyEvent) event.destiny = destinyEvent;
 
@@ -440,8 +445,23 @@ window.SG3 = window.SG3 || {};
       return false;
     },
 
+    _forceEndByTimeout: function() {
+      var atkScore = 0, defScore = 0;
+      for (var i = 0; i < this.state.attacker.heroes.length; i++) {
+        var h = this.state.attacker.heroes[i];
+        if (h.hp > 0 || h.troops > 0) atkScore += h.hp + h.troops;
+      }
+      for (var j = 0; j < this.state.defender.heroes.length; j++) {
+        var h2 = this.state.defender.heroes[j];
+        if (h2.hp > 0 || h2.troops > 0) defScore += h2.hp + h2.troops;
+      }
+      this.state.winner = (atkScore >= defScore) ? 'attacker' : 'defender';
+      this.state.phase = 'ended';
+      this._addLog('战斗超时，按剩余战力判定胜负！');
+    },
+
     _checkDestiny: function(hero, heroData, heroName, side) {
-      if (this.state.destinyTriggered) return null;
+      if (this.state.destinyTriggered[side]) return null;
       if (!heroData || !heroData.isMonarch) return null;
       if (hero.maxHp <= 0) return null;
       var threshold = Math.floor(hero.maxHp * 0.1);
@@ -478,7 +498,7 @@ window.SG3 = window.SG3 || {};
         if (allyHeroes[j] !== hero) allyHeroes[j].morale = Math.min(400, allyHeroes[j].morale + 100);
       }
 
-      this.state.destinyTriggered = true;
+      this.state.destinyTriggered[side] = true;
       this._addLog('【天命觉醒】' + heroName + ' HP锁血至' + threshold + '（持续到战斗结束），天降陨石砸死所有敌军士兵，全属性提升300%！');
       return {
         type: 'destiny',

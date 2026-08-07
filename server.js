@@ -15,6 +15,14 @@ const MIME = {
 const server = http.createServer((req, res) => {
   let url = req.url.split('?')[0];
   let filePath = path.join(__dirname, url === '/' ? 'index.html' : url);
+
+  // 防止路径穿越：确保路径在 __dirname 内（path.join 会规范化 .. 段）
+  if (filePath !== __dirname && !filePath.startsWith(__dirname + path.sep)) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
   let ext = path.extname(filePath);
 
   fs.readFile(filePath, (err, data) => {
