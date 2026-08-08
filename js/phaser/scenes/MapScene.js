@@ -40,13 +40,19 @@ window.SG3.MapScene = new Phaser.Class({
     this._armySprites = [];
     this._drawArmies();
 
-    // HUD
-    this._createHUD();
+    // 地图缩放（必须在 _createHUD 之前初始化，HUD 会读取 _mapScale 显示比例）
+    this._mapMinScale = 0.5;
+    this._mapMaxScale = 2.2;
+    this._mapDefaultScale = 1.1;
+    this._mapScale = 1.1;
+    this._mapContainer.setScale(this._mapScale);
 
-    // 城市信息面板容器
-    this._panelContainer = this.add.container(0, 0);
-    this._panelContainer.setDepth(10);
-    this._panelVisible = false;
+    // 初始位置：把地图中心放到画布中心，让中原/荆州核心区域居中显示
+    this._mapContainer.x = this._cw / 2 - (this._mapW / 2) * this._mapScale;
+    this._mapContainer.y = this._ch / 2 - (this._mapH / 2) * this._mapScale;
+    this._clampMapPosition();
+    this._mapHomeX = this._mapContainer.x;
+    this._mapHomeY = this._mapContainer.y;
 
     // 拖拽平移
     this._dragging = false;
@@ -55,11 +61,22 @@ window.SG3.MapScene = new Phaser.Class({
     this._mapStartX = 0;
     this._mapStartY = 0;
 
-    // 设置地图初始位置（居中）
-    var initX = (this._cw - this._mapW) / 2;
-    var initY = (this._ch - this._mapH) / 2 + 20;
-    this._mapContainer.x = Math.min(10, initX);
-    this._mapContainer.y = Math.min(50, initY);
+    // HUD
+    this._createHUD();
+
+    // 城市信息面板容器
+    this._panelContainer = this.add.container(0, 0);
+    this._panelContainer.setDepth(10);
+    this._panelVisible = false;
+
+    // 滚轮缩放（以鼠标指针为中心）
+    var scene = this;
+    this.input.on('wheel', function(pointer, gameObjects, deltaX, deltaY, deltaZ) {
+      // 只在 HUD 允许区域内（避开顶栏底栏）才缩放地图
+      if (pointer.y <= 50 || pointer.y >= scene._ch - 36) return;
+      var factor = deltaY > 0 ? 0.9 : 1.1;
+      scene._zoomAroundScreen(pointer.x, pointer.y, factor);
+    });
 
     // 拖拽事件
     this.input.on('pointerdown', function(pointer) {
@@ -78,6 +95,7 @@ window.SG3.MapScene = new Phaser.Class({
         var dy = pointer.y - this._dragStartY;
         this._mapContainer.x = this._mapStartX + dx;
         this._mapContainer.y = this._mapStartY + dy;
+        this._clampMapPosition();
       }
     }, this);
 
@@ -245,64 +263,102 @@ window.SG3.MapScene = new Phaser.Class({
       var color = (window.SG3.FACTION_COLORS[city.faction] || 0x888888);
       var isPass = city.type === 'pass';
 
-      // 城池图标
-      var icon;
+      // 势力色的半透明底托（缩小尺寸，避免相邻城市重叠）
+      var palette = icon = this.add.graphics();
       if (isPass) {
-        // 关隘：画城门图标
+        palette.fillStyle(color, 0.28);
+        palette.fillRoundedRect(city.x - 15, city.y - 13, 30, 26, 3);
+        palette.lineStyle(2, color, 0.75);
+        palette.strokeRoundedRect(city.x - 15, city.y - 13, 30, 26, 3);
+
+        // 关隘：画城门图标（缩小）
         icon = this.add.graphics();
+        icon.lineStyle(2, color, 1);
         icon.fillStyle(0x6a5a3a, 1);
-        icon.fillRect(city.x - 14, city.y - 10, 28, 20);
+        icon.fillRect(city.x - 12, city.y - 8, 24, 17);
+        icon.strokeRect(city.x - 12, city.y - 8, 24, 17);
+        // 势力色城墙
         icon.fillStyle(color, 1);
-        icon.fillRect(city.x - 10, city.y - 6, 20, 16);
+        icon.fillRect(city.x - 10, city.y - 6, 20, 15);
+        icon.lineStyle(1, 0x3a2a1a, 0.6);
+        icon.strokeRect(city.x - 10, city.y - 6, 20, 15);
         // 城门洞
-        icon.fillStyle(0x3a2a1a, 1);
-        icon.fillRect(city.x - 4, city.y - 2, 8, 12);
-        // 城墙垛口
-        icon.fillStyle(0x5a4a2a, 1);
-        icon.fillRect(city.x - 14, city.y - 13, 6, 4);
-        icon.fillRect(city.x - 3, city.y - 13, 6, 4);
-        icon.fillRect(city.x + 8, city.y - 13, 6, 4);
-        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 14, city.y - 13, 28, 33), Phaser.Geom.Rectangle.Contains);
+        icon.fillStyle(0x2a1a0a, 1);
+        icon.fillRect(city.x - 4, city.y - 1, 8, 10);
+        // 城墙垛口（势力色）
+        icon.fillStyle(color, 1);
+        icon.fillRect(city.x - 12, city.y - 12, 5, 4);
+        icon.fillRect(city.x - 2, city.y - 12, 5, 4);
+        icon.fillRect(city.x + 7, city.y - 12, 5, 4);
+        icon.lineStyle(1, 0x3a2a1a, 0.8);
+        icon.strokeRect(city.x - 12, city.y - 12, 5, 4);
+        icon.strokeRect(city.x - 2, city.y - 12, 5, 4);
+        icon.strokeRect(city.x + 7, city.y - 12, 5, 4);
+        // 旗帜
+        icon.fillStyle(0x4a3a2a, 1);
+        icon.fillRect(city.x - 1, city.y - 20, 2, 8);
+        icon.fillStyle(color, 1);
+        icon.fillTriangle(city.x + 1, city.y - 20, city.x + 10, city.y - 17, city.x + 1, city.y - 13);
+        icon.lineStyle(1, 0x3a2a1a, 1);
+        icon.strokeTriangle(city.x + 1, city.y - 20, city.x + 10, city.y - 17, city.x + 1, city.y - 13);
+        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 15, city.y - 20, 30, 39), Phaser.Geom.Rectangle.Contains);
       } else {
-        // 城池：画城楼图标
+        // 势力色底托 + 描边（缩小）
+        palette.fillStyle(color, 0.28);
+        palette.fillRoundedRect(city.x - 17, city.y - 23, 34, 36, 3);
+        palette.lineStyle(2, color, 0.75);
+        palette.strokeRoundedRect(city.x - 17, city.y - 23, 34, 36, 3);
+
+        // 城池：画城楼图标（缩小）
         icon = this.add.graphics();
         // 底座
+        icon.lineStyle(2, color, 1);
         icon.fillStyle(0x8a7a5a, 1);
-        icon.fillRoundedRect(city.x - 16, city.y - 8, 32, 20, 2);
-        // 城墙色
+        icon.fillRoundedRect(city.x - 14, city.y - 6, 28, 17, 2);
+        icon.strokeRoundedRect(city.x - 14, city.y - 6, 28, 17, 2);
+        // 势力色城墙
         icon.fillStyle(color, 1);
-        icon.fillRoundedRect(city.x - 13, city.y - 5, 26, 16, 2);
+        icon.fillRoundedRect(city.x - 12, city.y - 4, 24, 14, 2);
+        icon.lineStyle(1, 0x3a2a1a, 0.55);
+        icon.strokeRoundedRect(city.x - 12, city.y - 4, 24, 14, 2);
         // 屋顶
         icon.fillStyle(0x5a3a1a, 1);
-        icon.fillTriangle(city.x, city.y - 18, city.x - 14, city.y - 6, city.x + 14, city.y - 6);
-        // 旗杆
-        icon.fillStyle(0x4a3a2a, 1);
-        icon.fillRect(city.x - 1, city.y - 24, 2, 8);
-        // 旗帜
+        icon.fillTriangle(city.x, city.y - 17, city.x - 13, city.y - 4, city.x + 13, city.y - 4);
+        icon.lineStyle(2, color, 1);
+        icon.strokeTriangle(city.x, city.y - 17, city.x - 13, city.y - 4, city.x + 13, city.y - 4);
+        // 屋顶檐角
         icon.fillStyle(color, 1);
-        icon.fillTriangle(city.x + 1, city.y - 24, city.x + 10, city.y - 21, city.x + 1, city.y - 18);
-        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 16, city.y - 24, 32, 36), Phaser.Geom.Rectangle.Contains);
+        icon.fillRect(city.x - 14, city.y - 6, 3, 3);
+        icon.fillRect(city.x + 11, city.y - 6, 3, 3);
+        // 旗杆 + 旗帜
+        icon.fillStyle(0x4a3a2a, 1);
+        icon.fillRect(city.x - 1, city.y - 25, 2, 8);
+        icon.fillStyle(color, 1);
+        icon.fillTriangle(city.x + 1, city.y - 25, city.x + 11, city.y - 22, city.x + 1, city.y - 18);
+        icon.lineStyle(1, 0x3a2a1a, 1);
+        icon.strokeTriangle(city.x + 1, city.y - 25, city.x + 11, city.y - 22, city.x + 1, city.y - 18);
+        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 17, city.y - 25, 34, 41), Phaser.Geom.Rectangle.Contains);
       }
       icon.useHandCursor = true;
 
-      // 城市名称
+      // 城市名称（位置上移，适配缩小后的图标）
       var nameColor = isPass ? '#6a4a1a' : '#3a2a1a';
-      var label = this.add.text(city.x, city.y + 18, city.name, {
-        fontSize: isPass ? '11px' : '13px',
+      var label = this.add.text(city.x, city.y + 15, city.name, {
+        fontSize: isPass ? '10px' : '12px',
         fontFamily: '"Microsoft YaHei", "SimHei", serif',
         color: nameColor, stroke: '#f5f0e8', strokeThickness: 3,
         fontStyle: isPass ? 'normal' : 'bold'
       }).setOrigin(0.5);
 
       // 兵力
-      var troops = this.add.text(city.x, city.y + 32, '', {
+      var troops = this.add.text(city.x, city.y + 28, '', {
         fontSize: '10px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
         color: '#7a6a5a', stroke: '#f5f0e8', strokeThickness: 2
       }).setOrigin(0.5);
 
-      this._mapContainer.add([icon, label, troops]);
+      this._mapContainer.add([palette, icon, label, troops]);
       this._citySprites[cityId] = icon;
-      this._cityLabels[cityId] = { label: label, troops: troops, icon: icon };
+      this._cityLabels[cityId] = { label: label, troops: troops, icon: icon, palette: palette };
 
       // 点击事件
       (function(cid) {
@@ -323,6 +379,7 @@ window.SG3.MapScene = new Phaser.Class({
       if (!this._citySprites.hasOwnProperty(cityId)) continue;
       this._citySprites[cityId].destroy();
       if (this._cityLabels[cityId]) {
+        if (this._cityLabels[cityId].palette) this._cityLabels[cityId].palette.destroy();
         if (this._cityLabels[cityId].label) this._cityLabels[cityId].label.destroy();
         if (this._cityLabels[cityId].troops) this._cityLabels[cityId].troops.destroy();
       }
@@ -387,26 +444,42 @@ window.SG3.MapScene = new Phaser.Class({
     topbar.lineStyle(1, 0x8a6a2a, 0.5);
     topbar.beginPath(); topbar.moveTo(0, 44); topbar.lineTo(w, 44); topbar.strokePath();
 
-    // 信息文本
-    this._turnText = this.add.text(16, 10, '', {
+    // 信息文本（右移，给左侧「势力总览」按钮腾出空间）
+    this._turnText = this.add.text(100, 10, '', {
       fontSize: '15px', color: '#ffd700', fontFamily: '"Microsoft YaHei", "SimHei", serif', fontStyle: 'bold'
     }).setDepth(21);
-    this._factionText = this.add.text(130, 10, '', {
+    this._factionText = this.add.text(215, 10, '', {
       fontSize: '15px', color: '#ff9944', fontFamily: '"Microsoft YaHei", "SimHei", serif', fontStyle: 'bold'
     }).setDepth(21);
-    this._goldText = this.add.text(280, 10, '', {
+    this._goldText = this.add.text(360, 10, '', {
       fontSize: '14px', color: '#e8d4b0', fontFamily: '"Microsoft YaHei", "SimHei", serif'
     }).setDepth(21);
-    this._foodText = this.add.text(390, 10, '', {
+    this._foodText = this.add.text(470, 10, '', {
       fontSize: '14px', color: '#e8d4b0', fontFamily: '"Microsoft YaHei", "SimHei", serif'
     }).setDepth(21);
 
-    // 按钮
+    // 按钮（depth 22/23，盖在信息文本上方，避免遮挡）
     var scene = this;
-    this._createHUDButton(w - 480, '我的城池', function() { scene._showMyCitiesPanel(); }).setDepth(21);
+    this._createHUDButton(10, '势力总览', function() { scene._showFactionPanel(); }, 23);
+    this._createHUDButton(w - 480, '我的城池', function() { scene._showMyCitiesPanel(); }, 22);
     this._createHUDButton(w - 370, '结束回合', function() { scene._onEndTurn(); }).setDepth(21);
     this._createHUDButton(w - 270, '存档', function() { GD.save(0); scene._showToast('存档成功'); }).setDepth(21);
     this._createHUDButton(w - 195, '读档', function() { if (GD.load(0)) { scene._refreshAll(); scene._showToast('读档成功'); } }).setDepth(21);
+
+    // 地图缩放按钮（右上角，小尺寸）
+    this._createZoomButton(w - 110, '＋', function() {
+      scene._zoomAroundScreen(scene._cw / 2, scene._ch / 2, 1.2);
+    }).setDepth(21);
+    this._createZoomButton(w - 80, '－', function() {
+      scene._zoomAroundScreen(scene._cw / 2, scene._ch / 2, 0.83);
+    }).setDepth(21);
+    this._createZoomButton(w - 50, '⟲', function() {
+      scene._resetMapView();
+    }).setDepth(21);
+    // 缩放比例显示
+    this._zoomText = this.add.text(w - 120, 39, '100%', {
+      fontSize: '10px', color: '#e8d4b0', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+    }).setOrigin(0.5).setDepth(21);
 
     // 底部栏
     var bottombar = this.add.graphics().setDepth(20);
@@ -416,25 +489,60 @@ window.SG3.MapScene = new Phaser.Class({
     bottombar.beginPath(); bottombar.moveTo(0, this._ch - 36); bottombar.lineTo(w, this._ch - 36); bottombar.strokePath();
 
     // 底部提示文字
-    this.add.text(w / 2, this._ch - 18, '拖拽地图移动视角  |  点击城池查看详情', {
+    this.add.text(w / 2, this._ch - 18, '拖拽地图 · 滚轮缩放 · 点击城池查看详情 · 右上角＋－⟲ 控制缩放', {
       fontSize: '12px', color: '#8a7a5a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
     }).setOrigin(0.5).setDepth(21);
 
     this._updateHUD();
+    this._updateZoomText();
   },
 
-  _createHUDButton: function(x, label, callback) {
+  _createZoomButton: function(x, label, callback) {
+    var bg = this.add.graphics();
+    bg.fillStyle(0x4a2a0a, 1);
+    bg.fillRoundedRect(x, 8, 26, 26, 4);
+    bg.lineStyle(1, 0x8a5a2a, 1);
+    bg.strokeRoundedRect(x, 8, 26, 26, 4);
+    bg.setDepth(20);
+
+    var text = this.add.text(x + 13, 21, label, {
+      fontSize: '18px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#ffd700', fontStyle: 'bold'
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(21);
+
+    text.on('pointerover', function() {
+      bg.clear();
+      bg.fillStyle(0x6a3a0a, 1);
+      bg.fillRoundedRect(x, 8, 26, 26, 4);
+      bg.lineStyle(1, 0xaa6a2a, 1);
+      bg.strokeRoundedRect(x, 8, 26, 26, 4);
+      bg.setDepth(20);
+    });
+    text.on('pointerout', function() {
+      bg.clear();
+      bg.fillStyle(0x4a2a0a, 1);
+      bg.fillRoundedRect(x, 8, 26, 26, 4);
+      bg.lineStyle(1, 0x8a5a2a, 1);
+      bg.strokeRoundedRect(x, 8, 26, 26, 4);
+      bg.setDepth(20);
+    });
+    text.on('pointerdown', callback);
+    return text;
+  },
+
+  _createHUDButton: function(x, label, callback, depth) {
+    var d = depth || 21;
     var bg = this.add.graphics();
     bg.fillStyle(0x4a2a0a, 1);
     bg.fillRoundedRect(x, 8, 80, 30, 4);
     bg.lineStyle(1, 0x8a5a2a, 1);
     bg.strokeRoundedRect(x, 8, 80, 30, 4);
-    bg.setDepth(20);
+    bg.setDepth(d - 1);
 
     var text = this.add.text(x + 40, 23, label, {
       fontSize: '13px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
       color: '#ffd700', fontStyle: 'bold'
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(21);
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(d);
 
     text.on('pointerover', function() {
       bg.clear();
@@ -442,7 +550,7 @@ window.SG3.MapScene = new Phaser.Class({
       bg.fillRoundedRect(x, 8, 80, 30, 4);
       bg.lineStyle(1, 0xaa6a2a, 1);
       bg.strokeRoundedRect(x, 8, 80, 30, 4);
-      bg.setDepth(20);
+      bg.setDepth(d - 1);
     });
     text.on('pointerout', function() {
       bg.clear();
@@ -450,7 +558,7 @@ window.SG3.MapScene = new Phaser.Class({
       bg.fillRoundedRect(x, 8, 80, 30, 4);
       bg.lineStyle(1, 0x8a5a2a, 1);
       bg.strokeRoundedRect(x, 8, 80, 30, 4);
-      bg.setDepth(20);
+      bg.setDepth(d - 1);
     });
     text.on('pointerdown', callback);
     return text;
@@ -468,17 +576,81 @@ window.SG3.MapScene = new Phaser.Class({
     if (this._foodText) this._foodText.setText('粮食：' + (fac ? fac.food : 0));
   },
 
+  // 更新缩放比例显示
+  _updateZoomText: function() {
+    if (this._zoomText) {
+      var pct = Math.round(this._mapScale * 100);
+      this._zoomText.setText(pct + '%');
+    }
+  },
+
+  // 以屏幕上 (sx, sy) 点为中心缩放地图（factor 1.1 放大 10%；0.9 缩小 10%）
+  _zoomAroundScreen: function(sx, sy, factor) {
+    var targetScale = this._mapScale * factor;
+    // 夹到允许范围
+    targetScale = Math.min(this._mapMaxScale, Math.max(this._mapMinScale, targetScale));
+    if (Math.abs(targetScale - this._mapScale) < 0.001) return;
+
+    // pivot 点当前在地图里的世界坐标：( (sx - cx) / s, (sy - cy) / s )
+    var wx = (sx - this._mapContainer.x) / this._mapScale;
+    var wy = (sy - this._mapContainer.y) / this._mapScale;
+
+    // 应用新缩放
+    this._mapScale = targetScale;
+    this._mapContainer.setScale(targetScale);
+
+    // 调整容器位置，使 pivot 世界坐标仍对应该屏幕点
+    // cx' = sx - wx * s' ; cy' = sy - wy * s'
+    this._mapContainer.x = sx - wx * this._mapScale;
+    this._mapContainer.y = sy - wy * this._mapScale;
+
+    // 约束平移范围，避免把地图拖出屏幕太远
+    this._clampMapPosition();
+    this._updateZoomText();
+  },
+
+  // 约束地图平移，防止拖出可视区域过多（缩放后也适用）
+  _clampMapPosition: function() {
+    var s = this._mapScale;
+    var mapW = this._mapW * s;
+    var mapH = this._mapH * s;
+
+    // 允许地图左边最多露出空白 = min(0, this._cw - mapW)
+    var minX = Math.min(0, this._cw - mapW + 40);
+    var maxX = this._cw - 40;
+    var minY = Math.min(0, this._ch - mapH + 60);
+    var maxY = this._ch - 80;
+
+    if (this._mapContainer.x < minX) this._mapContainer.x = minX;
+    if (this._mapContainer.x > maxX) this._mapContainer.x = maxX;
+    if (this._mapContainer.y < minY) this._mapContainer.y = minY;
+    if (this._mapContainer.y > maxY) this._mapContainer.y = maxY;
+  },
+
+  // 还原默认视角（缩放 100% + 初始位置）
+  _resetMapView: function() {
+    this._mapScale = this._mapDefaultScale;
+    this._mapContainer.setScale(this._mapDefaultScale);
+    this._mapContainer.x = this._mapHomeX;
+    this._mapContainer.y = this._mapHomeY;
+    this._updateZoomText();
+  },
+
   _showCityPanel: function(cityId) {
     var GD = this._gd;
     var city = GD.cities[cityId];
     if (!city) return;
 
     this._panelContainer.removeAll(true);
+    this._clearDispatchHighlight();
     this._panelVisible = true;
 
     var panelW = 340;
     var panelH = this._ch - 100;
     var scene = this;
+
+    // 在地图上标识被选中的城市（蓝色光环 + "选中"标签）
+    this._showCitySelectHighlight(cityId);
 
     // 面板背景 - 古风卷轴样式
     var panelBg = this.add.graphics();
@@ -690,6 +862,7 @@ window.SG3.MapScene = new Phaser.Class({
     this._createPanelBtn(panelW / 2 - 45, y, 90, 30, '关闭', function() {
       scene._panelContainer.removeAll(true);
       scene._panelVisible = false;
+      scene._clearCitySelectHighlight();
     });
   },
 
@@ -833,6 +1006,8 @@ window.SG3.MapScene = new Phaser.Class({
 
     // 出征面板
     this._panelContainer.removeAll(true);
+    // 进入出征面板：先清除普通选中高亮，再由出征专属高亮负责标识我方/目标
+    this._clearCitySelectHighlight();
     this._panelVisible = true;
 
     var panelW = 360;
@@ -913,6 +1088,9 @@ window.SG3.MapScene = new Phaser.Class({
     }
     var selectedTargetId = weakest.id;
 
+    // 在地图上高亮显示己方城市和默认目标城市
+    this._showDispatchHighlight(fromCityId, selectedTargetId);
+
     var targetRadios = [];
     var targetTexts = [];
     for (var ti = 0; ti < targetCities.length; ti++) {
@@ -937,6 +1115,8 @@ window.SG3.MapScene = new Phaser.Class({
             targetRadios[r].setText('(' + (rCity.id === selectedTargetId ? '●' : '○') + ') ' + rText);
             targetRadios[r].setBackgroundColor(rCity.id === selectedTargetId ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)');
           }
+          // 切换目标城市时更新地图高亮
+          scene._showDispatchHighlight(fromCityId, selectedTargetId);
         });
 
         scene._panelContainer.add(radio);
@@ -965,6 +1145,7 @@ window.SG3.MapScene = new Phaser.Class({
       scene._showToast(result.msg);
       scene._panelContainer.removeAll(true);
       scene._panelVisible = false;
+      scene._clearDispatchHighlight();
       scene._refreshAll();
     });
 
@@ -977,6 +1158,7 @@ window.SG3.MapScene = new Phaser.Class({
     cancelBtn.on('pointerdown', function() {
       scene._panelContainer.removeAll(true);
       scene._panelVisible = false;
+      scene._clearDispatchHighlight();
     });
 
     this._panelContainer.add([confirmBtn, cancelBtn]);
@@ -1000,6 +1182,8 @@ window.SG3.MapScene = new Phaser.Class({
     var GD = this._gd;
 
     this._updateHUD();
+    this._clearDispatchHighlight();
+    this._clearCitySelectHighlight();
 
     // 重绘城池图标（势力可能变更）
     this._redrawCities();
@@ -1069,6 +1253,8 @@ window.SG3.MapScene = new Phaser.Class({
     var scene = this;
 
     this._panelContainer.removeAll(true);
+    this._clearCitySelectHighlight();
+    this._clearDispatchHighlight();
     this._panelVisible = true;
 
     var panelW = 340;
@@ -1236,11 +1422,579 @@ window.SG3.MapScene = new Phaser.Class({
       closeBtn.on('pointerdown', function() {
         scene._panelContainer.removeAll(true);
         scene._panelVisible = false;
+        scene._clearCitySelectHighlight();
       });
       scene._panelContainer.add(closeBtn);
     };
 
     renderList();
+  },
+
+  // 势力总览左侧面板（三级：势力列表 → 城市列表 → 武将明细）
+  _showFactionPanel: function() {
+    var GD = this._gd;
+    var scene = this;
+
+    this._panelContainer.removeAll(true);
+    this._clearCitySelectHighlight();
+    this._clearDispatchHighlight();
+    this._panelVisible = true;
+
+    var panelW = 310;
+    var panelH = this._ch - 100;
+    this._panelContainer.x = 10;
+    this._panelContainer.y = 50;
+
+    var panelBg = this.add.graphics();
+    panelBg.fillGradientStyle(0xfaf3e6, 0xfaf3e6, 0xf0e6d0, 0xf0e6d0, 1);
+    panelBg.fillRect(0, 0, panelW, panelH);
+    panelBg.fillStyle(0x8a6a2a, 1);
+    panelBg.fillRect(0, 0, 4, panelH);
+    panelBg.fillRect(panelW - 4, 0, 4, panelH);
+    panelBg.lineStyle(2, 0xaa8a4a, 1);
+    panelBg.strokeRect(0, 0, panelW, panelH);
+    this._panelContainer.add(panelBg);
+
+    // 找每个势力的君主：优先 isMonarch，否则取魅力最高武将
+    var findMonarch = function(factionId) {
+      var list = GD.getFactionHeroes(factionId);
+      if (list.length === 0) return null;
+      var monarch = null;
+      for (var m = 0; m < list.length; m++) {
+        if (list[m].isMonarch) { monarch = list[m]; break; }
+      }
+      if (monarch) return monarch;
+      var best = list[0];
+      for (var m2 = 1; m2 < list.length; m2++) {
+        if (list[m2].charisma > best.charisma) best = list[m2];
+      }
+      return best;
+    };
+
+    var getFactionTroops = function(factionId) {
+      var cities = GD.getFactionCities(factionId);
+      var t = 0;
+      for (var ci = 0; ci < cities.length; ci++) {
+        t += GD.getCityTotalTroops(cities[ci].id);
+      }
+      return t;
+    };
+
+    var stack = []; // 下钻历史：'faction' / {type:'cities', factionId} / {type:'heroes', cityId}
+
+    var titleText = scene.add.text(panelW / 2, 20, '势力总览', {
+      fontSize: '19px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#3a2a1a', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    scene._panelContainer.add(titleText);
+
+    var backBtn = scene.add.text(28, 20, '◀ 返回', {
+      fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#8a5a2a', backgroundColor: 'rgba(138,106,42,0.12)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setVisible(false);
+
+    var closeBtn = scene.add.text(panelW - 28, 20, '✕ 关闭', {
+      fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#cc4444', backgroundColor: 'rgba(204,68,68,0.1)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    // 重要：panel 内所有“下钻/返回/关闭”动作都会在下一帧才清理/重绘，
+    // 避免在 Phaser 派发 pointerdown 过程中销毁正在接收事件的对象，卡死输入系统。
+    var schedule = function(fn) { scene.time.delayedCall(0, fn); };
+
+    closeBtn.on('pointerdown', function() {
+      schedule(function() {
+        scene._panelContainer.removeAll(true);
+        scene._panelVisible = false;
+        scene._clearCitySelectHighlight();
+      });
+    });
+    scene._panelContainer.add([backBtn, closeBtn]);
+
+    var render = function() {
+      // 清理非装饰内容（保留 panelBg + 顶栏标题/返回/关闭）
+      var toRemove = [];
+      var children = scene._panelContainer.list;
+      var keepers = new Set();
+      keepers.add(panelBg);
+      keepers.add(titleText);
+      keepers.add(backBtn);
+      keepers.add(closeBtn);
+      for (var k = 0; k < children.length; k++) {
+        if (!keepers.has(children[k])) toRemove.push(children[k]);
+      }
+      for (var r = 0; r < toRemove.length; r++) {
+        scene._panelContainer.remove(toRemove[r], true);
+      }
+
+      backBtn.setVisible(stack.length > 0);
+
+      var viewState = stack.length === 0 ? 'faction' : stack[stack.length - 1].type;
+      var contentY = 50;
+      var contentH = panelH - 75;
+
+      if (viewState === 'faction') {
+        titleText.setText('势力总览');
+
+        // 统计所有势力
+        var factionIds = [];
+        for (var fId in GD.factions) {
+          if (GD.factions.hasOwnProperty(fId)) factionIds.push(fId);
+        }
+        for (var cId in GD.cities) {
+          if (!GD.cities.hasOwnProperty(cId)) continue;
+          var fid = GD.cities[cId].faction;
+          if (factionIds.indexOf(fid) === -1) factionIds.push(fid);
+        }
+
+        var factionRows = [];
+        for (var fi = 0; fi < factionIds.length; fi++) {
+          var fid2 = factionIds[fi];
+          var facCities = GD.getFactionCities(fid2);
+          var facHeroes = GD.getFactionHeroes(fid2);
+          if (facCities.length === 0 && facHeroes.length === 0 && fid2 !== 'none') continue;
+          var monarch = findMonarch(fid2);
+          var facTroops = getFactionTroops(fid2);
+          factionRows.push({
+            factionId: fid2,
+            cityCount: facCities.length,
+            heroCount: facHeroes.length,
+            troops: facTroops,
+            monarch: monarch
+          });
+        }
+        factionRows.sort(function(a, b) { return b.cityCount - a.cityCount; });
+
+        for (var ri = 0; ri < factionRows.length; ri++) {
+          var row = factionRows[ri];
+          var facColor = (window.SG3.FACTION_COLORS[row.factionId] || 0x888888);
+          var facCss = (window.SG3.FACTION_CSS && window.SG3.FACTION_CSS[row.factionId]) || '#888888';
+          var facName = (window.SG3.FACTION_NAMES && window.SG3.FACTION_NAMES[row.factionId]) || row.factionId;
+          var monarchName = row.monarch ? (row.monarch.isMonarch ? '★' : '') + row.monarch.name : '（无代表）';
+          var isPlayer = row.factionId === GD.playerFaction;
+
+          // 行背景（整行唯一可点击对象，其他元素均不设 interactive，指针穿透到此）
+          var rowBg = scene.add.graphics();
+          rowBg.fillStyle(facColor, 0.12);
+          rowBg.fillRoundedRect(12, contentY, panelW - 24, 60, 4);
+          rowBg.lineStyle(1, facColor, 0.65);
+          rowBg.strokeRoundedRect(12, contentY, panelW - 24, 60, 4);
+          if (isPlayer) {
+            rowBg.lineStyle(2, 0xffd700, 1);
+            rowBg.strokeRoundedRect(12, contentY, panelW - 24, 60, 4);
+          }
+          scene._panelContainer.add(rowBg);
+
+          // 势力色块（22x22）
+          var colorBox = scene.add.graphics();
+          colorBox.fillStyle(facColor, 1);
+          colorBox.fillRoundedRect(22, contentY + 19, 22, 22, 3);
+          colorBox.lineStyle(1, 0x3a2a1a, 0.7);
+          colorBox.strokeRoundedRect(22, contentY + 19, 22, 22, 3);
+          scene._panelContainer.add(colorBox);
+
+          // 势力名（君主）
+          scene._panelContainer.add(scene.add.text(54, contentY + 8, facName + (isPlayer ? '（我方）' : ''), {
+            fontSize: '15px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+            color: '#3a2a1a', fontStyle: 'bold'
+          }));
+
+          scene._panelContainer.add(scene.add.text(54, contentY + 29, '君主：' + monarchName, {
+            fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+            color: row.monarch && row.monarch.isMonarch ? '#cc6600' : facCss,
+            fontStyle: row.monarch && row.monarch.isMonarch ? 'bold' : 'normal'
+          }));
+
+          // 统计项（右侧对齐）
+          var statStr = '城 ' + row.cityCount + '  将 ' + row.heroCount + '  兵 ' + row.troops;
+          scene._panelContainer.add(scene.add.text(panelW - 42, contentY + 41, statStr, {
+            fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+            color: '#5a4a3a', fontStyle: 'bold'
+          }).setOrigin(1, 0));
+
+          // 右侧下钻 ▶ 提示
+          scene._panelContainer.add(scene.add.text(panelW - 22, contentY + 28, '▶', {
+            fontSize: '11px', color: '#aa7a2a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(0.5));
+
+          // 整行仅 rowBg 接收点击，下一帧重绘
+          (function(factionData, cy) {
+            rowBg.setInteractive(
+              new Phaser.Geom.Rectangle(12, cy, panelW - 24, 60),
+              Phaser.Geom.Rectangle.Contains
+            ).once('pointerdown', function() {
+              stack.push({ type: 'cities', factionId: factionData.factionId });
+              schedule(render);
+            });
+            // pointerover 时显示小手型（用户移到 rowBg 上就提示可点击）
+            rowBg.on('pointerover', function() { scene.input.setDefaultCursor('pointer'); });
+            rowBg.on('pointerout',  function() { scene.input.setDefaultCursor('default'); });
+          })(row, contentY);
+
+          contentY += 70;
+          if (contentY > contentH) break;
+        }
+
+      } else if (viewState === 'cities') {
+        var cur = stack[stack.length - 1];
+        var curFacId = cur.factionId;
+        var curFacName = (window.SG3.FACTION_NAMES && window.SG3.FACTION_NAMES[curFacId]) || curFacId;
+        titleText.setText(curFacName + ' · 城市列表');
+        var curFacColor = (window.SG3.FACTION_COLORS[curFacId] || 0x888888);
+
+        var facCities = GD.getFactionCities(curFacId);
+        if (facCities.length === 0) {
+          scene._panelContainer.add(scene.add.text(panelW / 2, 80, '该势力暂无占领城市', {
+            fontSize: '13px', color: '#9a8a7a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(0.5));
+        }
+
+        for (var ci2 = 0; ci2 < facCities.length; ci2++) {
+          var ct = facCities[ci2];
+          var isPass = ct.type === 'pass';
+          var cTroops = GD.getCityTotalTroops(ct.id);
+          var heroCount = ct.heroes.length;
+
+          // 行背景（整行唯一可点击区域，除定位按钮外）
+          var rowBg2 = scene.add.graphics();
+          rowBg2.fillStyle(curFacColor, 0.1);
+          rowBg2.fillRoundedRect(12, contentY, panelW - 24, 50, 4);
+          rowBg2.lineStyle(1, curFacColor, 0.55);
+          rowBg2.strokeRoundedRect(12, contentY, panelW - 24, 50, 4);
+          scene._panelContainer.add(rowBg2);
+
+          // 左侧小色块
+          var cb2 = scene.add.graphics();
+          cb2.fillStyle(curFacColor, 1);
+          cb2.fillRoundedRect(20, contentY + 14, 14, 22, 3);
+          scene._panelContainer.add(cb2);
+
+          var nameLine = (isPass ? '关 · ' : '') + ct.name;
+          scene._panelContainer.add(scene.add.text(44, contentY + 6, nameLine, {
+            fontSize: '14px', color: '#3a2a1a', fontStyle: 'bold',
+            fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }));
+
+          var statLine = '武将 ' + heroCount + ' 人  ·  兵力 ' + cTroops + ' / ' + ct.maxTroops;
+          scene._panelContainer.add(scene.add.text(44, contentY + 28, statLine, {
+            fontSize: '12px', color: '#5a4a3a',
+            fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }));
+
+          // 右侧：定位按钮（独立可点击，不影响下钻）
+          var gotoBtn = scene.add.text(panelW - 52, contentY + 13, '定位', {
+            fontSize: '11px', color: '#4488cc', backgroundColor: 'rgba(68,136,204,0.12)',
+            padding: { x: 5, y: 2 }, fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(1, 0).setInteractive({ useHandCursor: true });
+          scene._panelContainer.add(gotoBtn);
+
+          // 下钻 ▶ 提示
+          scene._panelContainer.add(scene.add.text(panelW - 22, contentY + 25, '▶', {
+            fontSize: '11px', color: '#aa7a2a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(0.5));
+
+          (function(cityObj, cy, gBtn) {
+            // 定位按钮（只定位，不进下钻）
+            gBtn.on('pointerdown', function() {
+              var tx = scene._cw / 2 - cityObj.x * scene._mapScale;
+              var ty = scene._ch / 2 - cityObj.y * scene._mapScale;
+              scene._mapContainer.x = tx;
+              scene._mapContainer.y = ty;
+              scene._clampMapPosition();
+              scene._showCitySelectHighlight(cityObj.id);
+            });
+
+            // 行背景点击：下钻到武将明细（下一帧重绘）
+            rowBg2.setInteractive(
+              new Phaser.Geom.Rectangle(12, cy, panelW - 24, 50),
+              Phaser.Geom.Rectangle.Contains
+            ).once('pointerdown', function() {
+              stack.push({ type: 'heroes', cityId: cityObj.id });
+              scene._showCitySelectHighlight(cityObj.id);
+              schedule(render);
+            });
+            rowBg2.on('pointerover', function() { scene.input.setDefaultCursor('pointer'); });
+            rowBg2.on('pointerout',  function() { scene.input.setDefaultCursor('default'); });
+          })(ct, contentY, gotoBtn);
+
+          contentY += 58;
+          if (contentY > contentH) break;
+        }
+
+      } else if (viewState === 'heroes') {
+        var cur2 = stack[stack.length - 1];
+        var city2 = GD.cities[cur2.cityId];
+        if (!city2) { stack.pop(); schedule(render); return; }
+        titleText.setText(city2.name + ' · 武将详情');
+        scene._showCitySelectHighlight(city2.id);
+
+        var cTroops2 = GD.getCityTotalTroops(city2.id);
+        var curFacCss2 = (window.SG3.FACTION_CSS && window.SG3.FACTION_CSS[city2.faction]) || '#888888';
+        var summaryText = '所属：' + ((window.SG3.FACTION_NAMES && window.SG3.FACTION_NAMES[city2.faction]) || city2.faction) +
+                          '  ·  总兵力 ' + cTroops2 + ' / ' + city2.maxTroops;
+        scene._panelContainer.add(scene.add.text(15, contentY, summaryText, {
+          fontSize: '12px', color: curFacCss2, fontFamily: '"Microsoft YaHei", "SimHei", serif'
+        }));
+        contentY += 20;
+
+        if (city2.heroes.length === 0) {
+          scene._panelContainer.add(scene.add.text(panelW / 2, contentY + 20, '该城无驻守武将', {
+            fontSize: '13px', color: '#9a8a7a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(0.5));
+        }
+
+        for (var hi2 = 0; hi2 < city2.heroes.length; hi2++) {
+          var hero2 = GD.heroes[city2.heroes[hi2]];
+          if (!hero2) continue;
+          var isMono = hero2.isMonarch;
+          var heroColor2 = isMono ? '#cc6600' : '#3a2a1a';
+          var statusMap = { idle: '待命', developing: '内政中', marching: '行军中' };
+          var statusTxt = statusMap[hero2.status] || hero2.status;
+          var hpPct = Math.max(0, Math.round((hero2.hp / (hero2.maxHp || 100)) * 100));
+
+          var rowBg3 = scene.add.graphics();
+          rowBg3.fillStyle(isMono ? 0xffd700 : 0x8a6a2a, isMono ? 0.18 : 0.08);
+          rowBg3.fillRoundedRect(12, contentY, panelW - 24, 46, 3);
+          rowBg3.lineStyle(1, isMono ? 0xffd700 : 0xaa8a4a, isMono ? 0.8 : 0.5);
+          rowBg3.strokeRoundedRect(12, contentY, panelW - 24, 46, 3);
+          scene._panelContainer.add(rowBg3);
+
+          var headG = scene.add.graphics();
+          var headColor = (window.SG3.FACTION_COLORS[hero2.faction] || 0x888888);
+          headG.fillStyle(0x3a2a1a, 1);
+          headG.fillRoundedRect(20, contentY + 8, 30, 30, 4);
+          headG.fillStyle(headColor, 0.9);
+          headG.fillRoundedRect(21, contentY + 9, 28, 28, 3);
+          headG.fillStyle(0xfaf3e6, 1);
+          headG.fillCircle(35, contentY + 20, 4);
+          headG.fillRect(31, contentY + 24, 8, 8);
+          scene._panelContainer.add(headG);
+
+          var heroName = (isMono ? '★ ' : '') + hero2.name;
+          var heroFontSize = isMono ? '14px' : '13px';
+          scene._panelContainer.add(scene.add.text(58, contentY + 6, heroName, {
+            fontSize: heroFontSize, color: heroColor2, fontStyle: isMono ? 'bold' : 'normal',
+            fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }));
+
+          var heroAttr = '武' + hero2.force + ' 智' + hero2.intellect + ' 统' + hero2.command +
+                         ' 政' + hero2.politics + '  HP' + hpPct + '%';
+          scene._panelContainer.add(scene.add.text(58, contentY + 24, heroAttr, {
+            fontSize: '11px', color: '#7a6a5a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }));
+
+          var rightStr = '兵 ' + hero2.troops + '/' + hero2.maxTroops + '  ' + statusTxt;
+          scene._panelContainer.add(scene.add.text(panelW - 20, contentY + 23, rightStr, {
+            fontSize: '12px', color: '#3a2a1a', fontStyle: 'bold',
+            fontFamily: '"Microsoft YaHei", "SimHei", serif'
+          }).setOrigin(1, 0));
+
+          contentY += 54;
+          if (contentY > contentH) break;
+        }
+      }
+
+      var hintLine = scene.add.graphics();
+      hintLine.lineStyle(1, 0xccb888, 0.5);
+      hintLine.beginPath();
+      hintLine.moveTo(12, panelH - 42);
+      hintLine.lineTo(panelW - 12, panelH - 42);
+      hintLine.strokePath();
+      scene._panelContainer.add(hintLine);
+
+      var tip = (viewState === 'faction')
+        ? '点击任意势力行查看该势力所有城市'
+        : (viewState === 'cities'
+            ? '点击城市行查看武将明细 · 点「定位」居中该城 · 右上角返回上级'
+            : '武将明细：君主★标记 · 五维 · HP · 带兵 · 状态');
+      scene._panelContainer.add(scene.add.text(panelW / 2, panelH - 28, tip, {
+        fontSize: '11px', color: '#8a7a5a', fontFamily: '"Microsoft YaHei", "SimHei", serif'
+      }).setOrigin(0.5));
+    };
+
+    backBtn.on('pointerdown', function() {
+      schedule(function() {
+        if (stack.length > 0) {
+          stack.pop();
+          if (stack.length === 0) scene._clearCitySelectHighlight();
+          else {
+            var top = stack[stack.length - 1];
+            if (top.type === 'cities') scene._clearCitySelectHighlight();
+          }
+          render();
+        }
+      });
+    });
+
+    render();
+  },
+
+  // 选中城市高亮：点击城市查看详情时，在地图上标识该城市（蓝色光环 + "选中"标签）
+  _showCitySelectHighlight: function(cityId) {
+    this._clearCitySelectHighlight();
+    if (!this._citySelectHighlightLayer) {
+      this._citySelectHighlightLayer = this.add.container(0, 0);
+      this._mapContainer.add(this._citySelectHighlightLayer);
+    }
+    this._citySelectHighlightObjects = [];
+
+    var city = this._gd.cities[cityId];
+    if (!city) return;
+
+    var ring = this.add.graphics();
+    // 关键：把 Graphics 定位到圆心，再以本地 (0,0) 画圆 —— 缩放中心 = 圆心，不会晃动
+    ring.setPosition(city.x, city.y);
+    ring.lineStyle(3, 0x3388ff, 1);
+    ring.strokeCircle(0, 0, 28);
+    ring.lineStyle(1, 0x3388ff, 0.45);
+    ring.strokeCircle(0, 0, 36);
+    this._citySelectHighlightLayer.add(ring);
+    this.tweens.add({
+      targets: ring,
+      scaleX: 1.15, scaleY: 1.15,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+    this._citySelectHighlightObjects.push(ring);
+
+    var tag = this.add.text(city.x, city.y - 44, '选中', {
+      fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#ffffff', backgroundColor: 'rgba(40,110,220,0.92)',
+      padding: { x: 6, y: 2 }, fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this._citySelectHighlightLayer.add(tag);
+    this._citySelectHighlightObjects.push(tag);
+  },
+
+  // 清除选中城市高亮
+  _clearCitySelectHighlight: function() {
+    if (this._citySelectHighlightObjects) {
+      for (var k = 0; k < this._citySelectHighlightObjects.length; k++) {
+        this.tweens.killTweensOf(this._citySelectHighlightObjects[k]);
+      }
+      this._citySelectHighlightObjects = [];
+    }
+    if (this._citySelectHighlightLayer) {
+      this._citySelectHighlightLayer.removeAll(true);
+    }
+  },
+
+  // 出征高亮：在地图上高亮显示己方城市和目标城市，并绘制行军路线预览
+  _showDispatchHighlight: function(fromCityId, targetCityId) {
+    this._clearDispatchHighlight();
+    if (!this._dispatchHighlightLayer) {
+      this._dispatchHighlightLayer = this.add.container(0, 0);
+      this._mapContainer.add(this._dispatchHighlightLayer);
+    }
+    this._dispatchHighlightObjects = [];
+    // 己方城市：绿色脉动光环
+    if (fromCityId) {
+      this._addCityHighlight(fromCityId, 0x33cc55, 'rgba(40,160,60,0.9)', '我方');
+    }
+    // 目标城市：红色脉动光环
+    if (targetCityId) {
+      this._addCityHighlight(targetCityId, 0xff3322, 'rgba(200,40,30,0.9)', '目标');
+    }
+    // 行军路线预览
+    if (fromCityId && targetCityId) {
+      this._addMarchLine(fromCityId, targetCityId);
+    }
+  },
+
+  // 为单个城市添加脉动光环与标签
+  _addCityHighlight: function(cityId, colorInt, cssColor, label) {
+    var city = this._gd.cities[cityId];
+    if (!city) return;
+    var ring = this.add.graphics();
+    // 关键：把 Graphics 定位到圆心，缩放中心 = 圆心，不会晃动
+    ring.setPosition(city.x, city.y);
+    ring.lineStyle(3, colorInt, 1);
+    ring.strokeCircle(0, 0, 26);
+    ring.lineStyle(1, colorInt, 0.5);
+    ring.strokeCircle(0, 0, 33);
+    this._dispatchHighlightLayer.add(ring);
+    // 脉动动画
+    this.tweens.add({
+      targets: ring,
+      scaleX: 1.18, scaleY: 1.18,
+      duration: 750,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+    this._dispatchHighlightObjects.push(ring);
+
+    var tag = this.add.text(city.x, city.y - 42, label, {
+      fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#ffffff', backgroundColor: cssColor,
+      padding: { x: 6, y: 2 }, fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this._dispatchHighlightLayer.add(tag);
+    this._dispatchHighlightObjects.push(tag);
+  },
+
+  // 绘制从己方城市到目标城市的行军路线（闪烁虚线 + 箭头）
+  _addMarchLine: function(fromCityId, targetCityId) {
+    var fromCity = this._gd.cities[fromCityId];
+    var toCity = this._gd.cities[targetCityId];
+    if (!fromCity || !toCity) return;
+
+    var line = this.add.graphics();
+    // 闪烁实线作为路线
+    line.lineStyle(3, 0xff6633, 0.85);
+    line.beginPath();
+    line.moveTo(fromCity.x, fromCity.y);
+    line.lineTo(toCity.x, toCity.y);
+    line.strokePath();
+    this._dispatchHighlightLayer.add(line);
+    this._dispatchHighlightObjects.push(line);
+    this.tweens.add({
+      targets: line,
+      alpha: 0.25,
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+
+    // 在目标城市附近画箭头，指示进攻方向
+    var angle = Math.atan2(toCity.y - fromCity.y, toCity.x - fromCity.x);
+    var arrowDist = 30;
+    var ax = toCity.x - Math.cos(angle) * arrowDist;
+    var ay = toCity.y - Math.sin(angle) * arrowDist;
+    var arrow = this.add.graphics();
+    arrow.fillStyle(0xff5533, 1);
+    arrow.beginPath();
+    arrow.moveTo(ax, ay);
+    arrow.lineTo(
+      ax - Math.cos(angle - 0.5) * 12,
+      ay - Math.sin(angle - 0.5) * 12
+    );
+    arrow.lineTo(
+      ax - Math.cos(angle + 0.5) * 12,
+      ay - Math.sin(angle + 0.5) * 12
+    );
+    arrow.closePath();
+    arrow.fillPath();
+    this._dispatchHighlightLayer.add(arrow);
+    this._dispatchHighlightObjects.push(arrow);
+  },
+
+  // 清除出征高亮
+  _clearDispatchHighlight: function() {
+    if (this._dispatchHighlightObjects) {
+      for (var i = 0; i < this._dispatchHighlightObjects.length; i++) {
+        this.tweens.killTweensOf(this._dispatchHighlightObjects[i]);
+      }
+      this._dispatchHighlightObjects = [];
+    }
+    if (this._dispatchHighlightLayer) {
+      this._dispatchHighlightLayer.removeAll(true);
+    }
   },
 
   _showToast: function(msg) {
