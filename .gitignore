@@ -1,4 +1,11 @@
 .idea/
 node_modules/
-*.png
+dist/
+
+# 根目录的历史测试截图；用 /* 前缀避免误伤 src-tauri/icons 下的 Tauri 图标
+/*.png
+
+# 验证脚本运行时生成的截图
+scripts/*.png
+
 .workbuddy/
