@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>三国群英传</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a0a00;
+      /* 桌面单机版：禁止误选文本与拖拽，保持游戏手感 */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #game { width: 100vw; height: 100vh; }
+    #game canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
