@@ -389,12 +389,15 @@ const Engine = {
       : this.state.defender.faction;
 
     // 回写双方武将的 HP / 兵力，被俘者易主
+    // 注意：兵力必须按武将的持久上限收敛。
+    // 「天命觉醒」会在战斗内把 unit 的兵力上限 ×4 并回满，那是战斗内的临时增益；
+    // 若原样回写，君主会带着 4 倍兵力离场（曾出现单将 27000+ 兵），彻底破坏平衡。
     const casualties = result.attackerCasualties.concat(result.defenderCasualties);
     for (const c of casualties) {
       const hero = gd.heroes[c.heroId];
       if (!hero) continue;
       hero.hp = c.hp;
-      hero.troops = c.troops;
+      hero.troops = Math.max(0, Math.min(c.troops, hero.maxTroops));
       if (c.captured) {
         hero.faction = winnerFaction;
         hero.loyalty = Math.floor(hero.loyalty * 0.3);
@@ -463,8 +466,17 @@ const Engine = {
       }
     }
 
+    // 同一回合可能有多支军队抵达有守将的城市，本场结算后出队并推进到下一场。
+    // 队列非空时由 GameData 决定下一场并保持 phase='battle'。
+    const finished = gd.battle;
     gd.battle = null;
     gd.phase = 'strategic';
+    if (typeof gd._completeBattle === 'function') {
+      gd._completeBattle(finished);
+    }
+
+    // 兜底：任何因异常路径滞留的武将不应永远停留在行军状态
+    gd._rescueStrandedHeroes();
   },
 
   _applyAdvisorSkills() {
@@ -521,6 +533,11 @@ const Engine = {
     this._addLog('战斗超时，按剩余战力判定胜负！');
   },
 
+  /**
+   * 天命觉醒：君主 HP 跌到 10% 阈值时触发。
+   * 临时增益只作用于战斗内的 unit，绝不改 gd.heroes 里的持久数据，
+   * 否则兵力上限会被永久放大（applyResult 会按 unit.maxTroops 回写）。
+   */
   _checkDestiny(hero, heroData, heroName, side) {
     if (this.state.destinyTriggered[side]) return null;
     if (!heroData || !heroData.isMonarch) return null;
@@ -560,6 +577,8 @@ const Engine = {
 
     this.state.destinyTriggered[side] = true;
     this._addLog(`【天命觉醒】${heroName} HP锁血至${threshold}（持续到战斗结束），天降陨石砸死所有敌军士兵，全属性提升300%！`);
+    // 注意：heroData.maxTroops / heroData.troops 是持久数据，绝不能在此修改，
+    // 临时增益只保留在战斗内的 unit（hero）上。
     return {
       type: 'destiny',
       heroName,

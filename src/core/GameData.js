@@ -46,6 +46,10 @@ const GD = {
   heroes: {},
   armies: [],
   battle: null,
+  // 同一回合可能有多支军队抵达有守将的城市，若共用一个 battle 字段，
+  // 后到的会覆盖先到的，导致先到军队的武将永远停在 marching。
+  // 因此用队列暂存待玩家处理的战斗，battle 只暴露队首。
+  battleQueue: [],
   customFactionId: null,
   _lastEvent: null,
 
@@ -55,6 +59,7 @@ const GD = {
     this.phase = 'strategic';
     this.armies = [];
     this.battle = null;
+    this.battleQueue = [];
     this.customFactionId = null;
     this._lastEvent = null;
 
@@ -222,10 +227,15 @@ const GD = {
     this._processRandomEvents();
     // 7. 行军推进
     this._processArmies();
+    // 7.1 清理异常滞留的行军武将（历史上会被多支军队共用 battle 字段而卡死）
+    this._rescueStrandedHeroes();
 
     // 8. 回合 +1
     this.turn++;
-    if (this.phase !== 'battle') {
+    // 若本回合产生了待玩家处理的战斗，保持 battle 阶段（队首即当前战斗）
+    if (this.battleQueue.length > 0) {
+      this._syncBattleHead();
+    } else if (this.phase !== 'battle') {
       this.phase = 'strategic';
     }
   },
@@ -390,17 +400,78 @@ const GD = {
     const isPlayerInvolved = (army.faction === this.playerFaction) ||
                             (targetCity.faction === this.playerFaction);
     if (isPlayerInvolved) {
-      this.battle = {
+      this.battleQueue.push({
         attackerFaction: army.faction,
         defenderFaction: targetCity.faction,
         attackerHeroIds: army.heroIds.slice(),
         defenderHeroIds: targetCity.heroes.slice(),
         targetCity: army.targetCity,
         fromCity: army.fromCity
-      };
-      this.phase = 'battle';
+      });
+      this._syncBattleHead();
     } else {
       this._autoResolveBattle(army, targetCity);
+    }
+  },
+
+  /**
+   * 让 this.battle 始终指向队列中第一场尚未结算的战斗。
+   * 战斗引擎在 applyResult() 中会把 gd.battle 置空，这里负责补位；
+   * 队列清空后回到 strategic，让玩家继续回合。
+   */
+  _syncBattleHead() {
+    this.battle = this.battleQueue.length > 0 ? this.battleQueue[0] : null;
+    this.phase = this.battle ? 'battle' : 'strategic';
+  },
+
+  /**
+   * 一场战斗结算完毕：把它移出队列，再让 battle 指向下一场。
+   * 正常情况下传入的就是队首（BattleScene 始终用 gd.battle 初始化引擎）；
+   * 若因存档反序列化导致对象引用不一致，则退化为移除队首。
+   */
+  _completeBattle(battle) {
+    if (battle) {
+      const idx = this.battleQueue.indexOf(battle);
+      if (idx !== -1) this.battleQueue.splice(idx, 1);
+      else if (this.battleQueue.length > 0) this.battleQueue.shift();
+    }
+    this._syncBattleHead();
+  },
+
+  /**
+   * 兜底清理：任何仍处于 marching 但没有对应在途军队的武将，
+   * 一律退回其所属势力的首座城市，避免其永久卡死（既不能出征也不能回城）。
+   */
+  _rescueStrandedHeroes() {
+    const marchingIds = new Set();
+    for (const army of this.armies) {
+      for (const hid of army.heroIds) marchingIds.add(hid);
+    }
+    // 正在队列中等待结算的战斗，其攻方武将同样属于「在途」，不能拉回城
+    for (const pending of this.battleQueue) {
+      for (const hid of pending.attackerHeroIds) marchingIds.add(hid);
+    }
+    for (const hid in this.heroes) {
+      if (!Object.prototype.hasOwnProperty.call(this.heroes, hid)) continue;
+      const hero = this.heroes[hid];
+      if (hero.status !== 'marching') continue;
+      if (marchingIds.has(hid)) continue;
+      let fallbackCity = null;
+      for (const cid in this.cities) {
+        if (this.cities[cid].faction === hero.faction) { fallbackCity = cid; break; }
+      }
+      hero.status = 'idle';
+      if (fallbackCity) {
+        hero.location = fallbackCity;
+        const city = this.cities[fallbackCity];
+        if (city.heroes.indexOf(hid) === -1) city.heroes.push(hid);
+        city.troops = this.getCityTotalTroops(fallbackCity);
+      } else {
+        // 该势力已无城池：按被俘处理，转为在野
+        hero.location = null;
+        hero.faction = 'none';
+        hero.troops = 0;
+      }
     }
   },
 
@@ -464,6 +535,7 @@ const GD = {
       heroes: JSON.parse(JSON.stringify(this.heroes)),
       armies: JSON.parse(JSON.stringify(this.armies)),
       battle: this.battle ? JSON.parse(JSON.stringify(this.battle)) : null,
+      battleQueue: JSON.parse(JSON.stringify(this.battleQueue)),
       lastEvent: this._lastEvent ? { name: this._lastEvent.name, desc: this._lastEvent.desc } : null
     };
   },
@@ -481,6 +553,10 @@ const GD = {
     this.heroes = data.heroes;
     this.armies = Array.isArray(data.armies) ? data.armies : [];
     this.battle = data.battle || null;
+    // 旧存档没有 battleQueue 字段，用当前 battle 补成单元素队列
+    this.battleQueue = Array.isArray(data.battleQueue)
+      ? data.battleQueue
+      : (this.battle ? [this.battle] : []);
     this._lastEvent = data.lastEvent || null;
 
     // 恢复自定义势力的名称与颜色，以及专属技能
@@ -688,8 +764,11 @@ const GD = {
     const toCity = this.cities[targetCityId];
     if (!fromCity || !toCity) return { ok: false, msg: '城市不存在' };
     if (fromCity.adjacent.indexOf(targetCityId) === -1) return { ok: false, msg: '目标城市不相邻' };
-    if (toCity.faction === fromCity.faction) return { ok: false, msg: '不能进攻友方城市' };
     if (!heroIds || heroIds.length === 0) return { ok: false, msg: '未选择出征武将' };
+
+    // 友方城市是「增援」而非「进攻」：_armyArrive 对友方城市会直接把部队并入，
+    // 这里不能像以前那样直接拒绝，否则出征面板列出的友方目标点了必然失败。
+    const isReinforce = toCity.faction === fromCity.faction;
 
     const validHeroIds = [];
     for (const hid of heroIds) {
@@ -727,7 +806,12 @@ const GD = {
       turnsLeft: 1,
       speed: 1
     });
-    return { ok: true, msg: `出兵${validHeroIds.length}名武将，进攻${toCity.name}` };
+    return {
+      ok: true,
+      msg: isReinforce
+        ? `派出${validHeroIds.length}名武将，增援${toCity.name}`
+        : `出兵${validHeroIds.length}名武将，进攻${toCity.name}`
+    };
   }
 };
 
