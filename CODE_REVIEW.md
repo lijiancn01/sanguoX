@@ -1,226 +1,103 @@
-# 三国群英传 - 代码审查报告
+# 三国群英传 - 代码审查报告（第二轮）
 
-> 审查日期：2026-08-06  
-> 审查范围：全部源码（index.html, server.js, js/phaser/*, css/main.css）
-
----
-
-## 一、项目概览
-
-| 维度 | 说明 |
-|------|------|
-| 技术栈 | Phaser 3.80.1 + 原生 JavaScript（ES5 风格） |
-| 架构 | 全局命名空间 `window.SG3`，4 个 Phaser 场景（Boot/Menu/Map/Battle） |
-| 实际加载文件 | `js/phaser/` 下 12 个 JS 文件 + index.html |
-| 未加载文件 | `js/` 根目录下 19 个 JS 文件 + `css/main.css`（死代码） |
-| 服务端 | `server.js` 原生 http 静态文件服务器 |
+> 审查日期：2026-08-07
+> 审查范围：全部源码（index.html, server.js, js/phaser/*）
+> 上一轮：2026-08-06（6项P0/P1已修复，19个死代码文件已清理）
 
 ---
 
-## 二、严重问题（P0 - 安全/崩溃）
+## 一、修复状态回顾
 
-### 2.1 server.js 路径穿越漏洞
-
-**文件**: `server.js:17`
-
-```js
-let filePath = path.join(__dirname, url === '/' ? 'index.html' : url);
-```
-
-`path.join` 不会阻止 `../` 穿越。攻击者可构造请求 `GET /../../etc/passwd` 读取项目目录外的文件。
-
-**修复建议**：
-```js
-let filePath = path.resolve(__dirname, url === '/' ? 'index.html' : url);
-if (!filePath.startsWith(__dirname)) {
-  res.writeHead(403);
-  res.end('Forbidden');
-  return;
-}
-```
-
-### 2.2 自动结算战斗无限循环风险
-
-**文件**: `GameData.js:418-421`
-
-```js
-var maxRounds = 200;
-while (state.phase !== 'ended' && maxRounds-- > 0) {
-  window.SG3.BattleEngine.step();
-}
-```
-
-如果 200 回合后战斗未结束（`state.winner` 为 `null`），后续代码 `if (state.winner === 'attacker')` 和 `else` 分支都不会执行，**出征武将永远卡在 `marching` 状态**，既不占领城市也不撤退。
-
-**修复建议**：增加 `else` 兜底分支，按兵力对比判定胜负或双方撤退。
-
-### 2.3 存档恢复丢失自定义势力信息
-
-**文件**: `GameData.js:490-494`
-
-```js
-if (data.customFactionId) {
-  if (!window.SG3.FACTION_NAMES) window.SG3.FACTION_NAMES = {};
-  if (!window.SG3.FACTION_CSS) window.SG3.FACTION_CSS = {};
-}
-```
-
-这段代码只创建了空对象，**没有恢复自定义势力的名称和颜色**。读档后自定义势力的名称显示为 `custom_1234567890`，颜色回退为灰色。
-
-**修复建议**：在 `toJSON` 中保存 `factionNames` 和 `factionCss`，在 `fromJSON` 中恢复。
+| 上轮问题 | 级别 | 状态 |
+|----------|------|------|
+| server.js 路径穿越 | P0 | ✅ 已修复 |
+| 自动结算战斗无限循环 | P0 | ✅ 已修复（200回合超时兜底 + `_forceEndByTimeout`） |
+| 存档恢复自定义势力丢失 | P0 | ✅ 已修复（toJSON/fromJSON 保存恢复名称颜色） |
+| 天命觉醒全局唯一死锁 | P1 | ✅ 已修复（改为 `{attacker:false, defender:false}`） |
+| 君主HP保护对全部君主生效 | P1 | ✅ 已修复（仅 `isPlayerMonarch` 受保护） |
+| 无胜负判定 | P1 | ✅ 已修复（`_checkGameEnd` + `_showGameOver`） |
+| 19个死代码文件 | P2 | ✅ 已清理 |
 
 ---
 
-## 三、重要问题（P1 - 逻辑缺陷）
+## 二、新发现问题
 
-### 3.1 无胜负判定 - 游戏可无限继续
+### P1 — 逻辑/视觉缺陷（全部已修复 ✅）
 
-**文件**: `GameData.js`
+#### 2.1 地图区域标签被背景遮挡（不可见）✅ 已修复
 
-`endTurn()` 中没有检查：
-- 玩家是否丢失所有城市（败北）
-- 玩家是否占领所有城市（胜利）
+**文件**: `MapScene.js:95-191` — `_drawTerrain()`
 
-游戏可以无限进行，没有任何结局。
-
-### 3.2 `fromJSON` 未恢复 `_lastEvent` 中的函数
-
-**文件**: `GameData.js:320-349, 476`
-
-`_processRandomEvents` 中 `events` 数组每项含 `apply` 函数，存入 `this._lastEvent`。`toJSON` 序列化时函数丢失，`fromJSON` 读取后 `_lastEvent` 为残缺对象。虽然不影响核心逻辑，但属于数据完整性问题。
-
-### 3.3 天命觉醒全局唯一 - 多君主战斗不合理
-
-**文件**: `BattleEngine.js:29, 444`
-
-```js
-destinyTriggered: false  // 全局标记
+```
+执行顺序:
+1. 创建 Graphics g，绘制不透明背景填充 (alpha=1)
+2. 创建区域文字（西北/河北/中原/蜀地/荆州/江东/交州），add 到 _mapContainer
+3. 将 g add 到 _mapContainer（最后加入 = 渲染在最上层）
 ```
 
-`_checkDestiny` 中 `if (this.state.destinyTriggered) return null` — 一旦任何君主触发天命，**其他君主永远无法触发**。在双方都是君主的对决中，先被打到低血量的君主获得巨大优势，另一方完全没有反制机会。
+Phaser Container 按插入顺序渲染，后插入的在上方。`g` 包含 `fillGradientStyle(..., 1)` 的不透明底色，完全覆盖先插入的文字标签。**7 个区域标注全部不可见。**
 
-### 3.4 君主 HP 保护对全部君主生效
-
-**文件**: `BattleEngine.js:141-143, 162-164`
-
-```js
-if (defData && defData.isMonarch && !this.state.destinyTriggered && (defender.hp - hpLoss) <= threshold) {
-  hpLoss = Math.max(0, defender.hp - threshold);
-}
-```
-
-AI 君主也享有 10% HP 保护，这意味着 AI 君主极难被击杀（必须先触发天命才能继续扣血）。如果天命已被玩家君主触发，AI 君主将**永远无法被杀死**，导致战斗无法结束。
-
-### 3.5 征兵士气惩罚几乎无效
-
-**文件**: `GameData.js:646`
-
-```js
-city.morale = Math.max(0, city.morale - Math.floor(amount * 0.001));
-```
-
-征兵 999 人只扣 0 点士气，征兵 5000 人也只扣 5 点。征兵几乎没有代价。
-
-### 3.6 地图拖拽与城市点击可能冲突
-
-**文件**: `MapScene.js:68-89`
-
-场景级 `pointerdown` 设置 `_dragging = true`，城市圆圈的 `pointerdown` 调用 `stopPropagation()`。但 Phaser 的事件传播顺序不保证场景级处理器在游戏对象处理器之后执行。如果场景先收到事件，点击城市会同时触发拖拽。
-
-**修复建议**：在 `pointermove` 中加入移动距离阈值（如 > 5px 才视为拖拽），或使用 `pointerup` 判断是否为点击。
+**修复** ✅：调整 `_drawTerrain()` 中 `this._mapContainer.add(g)` 的位置，移到文字标签之前，确保文字渲染在 Graphics 上层。
 
 ---
 
-## 四、代码质量问题（P2）
+#### 2.2 战斗攻击动画只移动卡片背景，内容不动 ✅ 已修复
 
-### 4.1 大量死代码
-
-| 路径 | 文件数 | 状态 |
-|------|--------|------|
-| `js/ai/`, `js/battle/`, `js/city/`, `js/data/`, `js/hero/`, `js/map/`, `js/ui/` | 15 个 JS | **未被 index.html 加载** |
-| `js/main.js`, `js/game.js` | 2 个 JS | **未被加载** |
-| `css/main.css` | 1 个 CSS | **未被加载**（index.html 用内联样式） |
-
-这 18 个文件是早期版本的遗留代码，应删除或归档，避免混淆。
-
-### 4.2 CDN 无降级方案
-
-**文件**: `index.html:15`
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-```
-
-CDN 不可用时游戏完全无法启动。建议下载 Phaser 到本地 `vendor/` 目录。
-
-### 4.3 `window.prompt` 作为输入方式
-
-**文件**: `MenuScene.js:368-374`
+**文件**: `BattleScene.js:365-434` — `_showAttackAnimation()`
 
 ```js
-textObj.on('pointerdown', function() {
-  var input = window.prompt(placeholder, ...);
+// 只 tween 了 cardBg 和 nameText
+this.tweens.add({ targets: attackerDisp.cardBg, x: rushX, y: rushY, ... });
+this.tweens.add({ targets: d.nameText, x: rushX, y: rushY, ... });
 ```
 
-使用 `window.prompt` 获取用户输入，体验极差，且部分浏览器/环境会阻止。代码注释也承认这是简化处理。
+武将头像、HP条、SP条、兵力文字、士气文字、技能按钮 — 全部不跟随移动。冲刺时卡片背景滑出，内容原地不动，视觉断裂。
 
-### 4.4 重复代码
+**修复** ✅：在 `_drawHeroCard()` 中创建 `Phaser.Container`，将卡片所有元素（背景、头像、名称、HP/SP条、兵力/士气文字、技能按钮）加入容器。`_showAttackAnimation()` 对 `attackerDisp.container` 做 tween，所有元素整体移动。
 
-| 方法 | 出现位置 |
-|------|----------|
-| `_showToast` | MenuScene, MapScene, BattleScene（3 处几乎相同） |
-| `_createButton` | MenuScene, BattleScene（2 处几乎相同） |
+---
 
-建议提取为公共工具函数或基类。
+#### 2.3 技能伤害不触发天命觉醒 ✅ 已修复
 
-### 4.5 魔法数字泛滥
+**文件**: `BattleEngine.js:193-229` — `useSkill()` → `_executeSkill()`
 
-典型示例：
+`_checkDestiny()` 仅在 `_heroAttack()` 末尾调用。`useSkill()` 对目标造成伤害后**不检查天命触发条件**。技能可以把君主 HP 打到 10% 以下甚至击杀，天命永远不触发。
+
+**修复** ✅：在 `_executeSkill()` 伤害分支中添加天命锁血检查和玩家君主HP保护（与 `_heroAttack` 逻辑一致）；在伤害循环结束后，对每个目标调用 `_checkDestiny()`。触发时将 destiny 事件附加到 `result.destiny`，BattleScene 按钮处理器检测后显示天命特效。
+
+---
+
+#### 2.4 技能击杀后不检查胜负 ✅ 已修复
+
+**文件**: `BattleEngine.js:193-229` — `useSkill()`
+
+`step()` 末尾调用 `_checkWinCondition()`，但 `useSkill()` 不调用。技能击杀最后一名敌将后，战斗不会立即结束，需等到下一次 `step()`（1.5秒后）。玩家可能看到"已全灭但战斗继续"的错觉。
+
+**修复** ✅：在 `useSkill()` 末尾添加 `if (this._checkWinCondition()) { this.state.phase = 'ended'; }`。BattleScene 按钮处理器在 `useSkill` 返回后检查 `self._be.isOver()`，若战斗结束则停止定时器并延迟结束战斗。
+
+---
+
+### P2 — 代码质量
+
+#### 2.5 `_lastEvent` 含函数引用，序列化后丢失
+
+**文件**: `GameData.js:320-350, 483`
 
 ```js
-var baseDmg = attacker.troops * 0.1 * randRange(0.8, 1.2) * typeMultiplier * moraleFactor;
-var recovery = Math.floor(city.maxTroops * 0.05);
-var goldCost = Math.floor(amount * 0.5);
-var chance = hero.charisma * 0.5 + 10;
+this._lastEvent = event; // event.apply 是函数
+// toJSON:
+lastEvent: this._lastEvent || null  // JSON.stringify 丢弃函数
 ```
 
-建议抽取为配置常量（如 `CONFIG.TROOP_DAMAGE_FACTOR`, `CONFIG.RECOVERY_RATE` 等）。
+`_processRandomEvents` 中事件的 `apply` 是闭包函数，`toJSON` 序列化时丢失。存档后 `_lastEvent` 变成残缺对象。
 
-### 4.6 超长函数
+**修复**：toJSON 中只保存 `event.name` 和 `event.desc`，不保存整个 event 对象。
 
-| 函数 | 行数 | 问题 |
-|------|------|------|
-| `MenuScene._showCustomMonarch` | ~255 行 | 单函数承担整个表单创建，应拆分 |
-| `MapScene._showCityPanel` | ~170 行 | 混合了面板创建、属性条、武将列表、按钮 |
-| `MapScene._showMyCitiesPanel` | ~200 行 | 内嵌 `renderList` 闭包，逻辑复杂 |
-| `MapScene._showDispatchPanel` | ~200 行 | 武将选择 + 目标选择 + 确认逻辑混合 |
+---
 
-### 4.7 `remainText` 初始化错误后立即修正
+#### 2.6 `toJSON` 四次 `JSON.parse(JSON.stringify())` 效率低
 
-**文件**: `MenuScene.js:207-210`
-
-```js
-var remainText = this.add.text(w / 2, formY, '属性分配（剩余点数：' + (attrPoints - 350 + 350) + '）', ...);
-// Fix: recalculate remaining
-var calcRemain = function() { ... };
-remainText.setText('属性分配（剩余点数：' + calcRemain() + '）');
-```
-
-`attrPoints - 350 + 350` 等于 `attrPoints`，这个表达式毫无意义。下一行立即用 `calcRemain()` 覆盖。应直接使用 `calcRemain()`。
-
-### 4.8 字符串比较做排序键
-
-**文件**: `MapScene.js:108`
-
-```js
-var key = cityId < adjId ? cityId + '-' + adjId : adjId + '-' + cityId;
-```
-
-用字符串大小比较做去重 key，对当前 ID 可行但脆弱。如果 ID 前缀相同长度不同，可能产生不一致的 key。
-
-### 4.9 `toJSON` 深拷贝方式低效
-
-**文件**: `GameData.js:471-475`
+**文件**: `GameData.js:478-481`
 
 ```js
 factions: JSON.parse(JSON.stringify(this.factions)),
@@ -229,71 +106,157 @@ heroes: JSON.parse(JSON.stringify(this.heroes)),
 armies: JSON.parse(JSON.stringify(this.armies)),
 ```
 
-对整个游戏状态做 4 次 `JSON.parse(JSON.stringify())`，性能较差。由于这些数据都是纯值类型（无函数、无循环引用），可以直接 `JSON.stringify(this)` 整体序列化，或使用 `structuredClone`。
-
-### 4.10 BattleScene 阵亡灰化坐标错误
-
-**文件**: `BattleScene.js:264-266`
-
-```js
-d.cardBg.clear();
-d.cardBg.fillStyle(0x000000, 0.2);
-d.cardBg.fillRoundedRect(0, 0, 220, 100, 4);  // 坐标从 (0,0) 开始
-```
-
-阵亡灰化时 `fillRoundedRect` 使用 `(0, 0)` 坐标，但原始卡片绘制使用 `(x, y)` 坐标。灰化矩形会画在场景左上角而非卡片位置。
-
-**修复**：应缓存卡片的 `x, y` 坐标并在灰化时使用。
+4 次完整的序列化+反序列化。由于数据都是纯值类型，可直接 `JSON.stringify(this)` 一次完成，或用 `structuredClone`。
 
 ---
 
-## 五、缺失功能（P3 - 建议）
+#### 2.7 征兵士气惩罚几乎无效
+
+**文件**: `GameData.js:661`
+
+```js
+city.morale = Math.max(0, city.morale - Math.floor(amount * 0.001));
+```
+
+征兵 999 人 → 扣 0 士气；征兵 5000 人 → 扣 5 士气。征兵几乎无代价。
+
+**修复**：改为 `Math.floor(amount * 0.01)` 或 `Math.floor(amount / 100)`。
+
+---
+
+#### 2.8 `_redrawCities` 每回合销毁重建 55 城 × 3 对象
+
+**文件**: `MapScene.js:320-333`
+
+每次 `_refreshAll()` 调用 `_redrawCities()`，销毁 55 个 Graphics + 55 个 Text + 55 个 Text = 165 个对象，再重建 165 个。每回合执行一次。
+
+**优化方向**：Graphics 不支持改色，但可以按势力缓存预绘制的 Texture，切换时替换 texture 而非重建。或仅重建势力发生变化的城池。
+
+---
+
+#### 2.9 拖拽与城池点击可能冲突
+
+**文件**: `MapScene.js:65-86`
+
+场景级 `pointerdown` 无条件设置 `_dragging = true`（只要 y 在工具栏之间）。城池 `pointerdown` 调用 `stopPropagation()`，但 Phaser 的事件传播顺序不保证场景处理器在游戏对象之后执行。
+
+**修复**：在 `pointermove` 中添加移动距离阈值（>5px 才开始拖拽），或用 `pointerup` 时的位移判断点击 vs 拖拽。
+
+---
+
+#### 2.10 阵亡武将技能按钮仍可点击
+
+**文件**: `BattleScene.js:215-243, 568-619`
+
+武将阵亡后，`_updateHeroDisplays` 灰化了卡片背景并添加"阵亡"标记，但技能按钮的 `setInteractive` 未被移除。点击时 `useSkill` 会返回 null（有 hp/troops 检查），但 UI 无反馈。
+
+**修复**：阵亡时 `sb.btn.disableInteractive()` 或 `sb.btn.setVisible(false)`。
+
+---
+
+#### 2.11 AI 不攻击空城（在野城市）
+
+**文件**: `AIController.js:99`
+
+```js
+if (!adj || adj.faction === faction || adj.faction === 'none') continue;
+```
+
+AI 跳过 `faction === 'none'` 的在野城市，错失无防守的空城。空城应是最优先的扩张目标。
+
+**修复**：移除 `adj.faction === 'none'` 过滤，或对空城降低出兵门槛。
+
+---
+
+#### 2.12 AI 只进攻不防守
+
+**文件**: `AIController.js:14-51`
+
+`takeTurn` 中没有：检测敌方行军军队 approaching → 调兵防守、向薄弱城市调兵增援等防御逻辑。AI 是纯进攻型，一旦被多线攻击就会逐个失守。
+
+---
+
+#### 2.13 重复代码：`_showToast` 三处几乎相同
+
+**文件**: `MenuScene.js:770`, `MapScene.js:1246`, `BattleScene.js:636`
+
+三个场景各有一份 `_showToast`，逻辑完全相同。
+
+**✅ 已修复**：提取为 `src/core/utils.js` 的 `showToast(scene, msg)` 公共函数，各场景的 `_showToast` 改为委托调用。
+
+---
+
+#### 2.14 CDN 无降级 + 无本地 Phaser
+
+**文件**: `index.html:15`
+
+CDN 不可用时游戏完全无法启动。
+
+**✅ 已修复**：迁移到 Vite + npm 依赖，Phaser 由打包器从 `node_modules` 打入产物，不再依赖 CDN；桌面版为完全离线运行。
+
+---
+
+#### 2.15 魔法数字未抽取常量
+
+散布在多个文件中：
+
+| 位置 | 代码 | 含义 |
+|------|------|------|
+| `BattleEngine.js:131` | `attacker.troops * 0.1` | 兵力伤害系数 |
+| `BattleEngine.js:132` | `attacker.troops * 0.02` | 最低伤害保底 |
+| `BattleEngine.js:160` | `force * 0.5` | 武力直伤系数 |
+| `GameData.js:260` | `city.maxTroops * 0.05` | 兵力恢复率 |
+| `GameData.js:630` | `amount * 0.5` | 征兵金币单价 |
+| `GameData.js:631` | `amount * 0.3` | 征兵粮食单价 |
+| `GameData.js:676` | `hero.charisma * 0.5 + 10` | 搜索成功率 |
+| `AIController.js:81` | `5000` | 进攻最低兵力门槛 |
+| `AIController.js:104` | `1.5` | 进攻兵力优势倍数 |
+
+**🟡 部分修复**：战斗与 AI 相关数值已抽到 `src/core/config.js`
+（`TROOP_DAMAGE_RATIO`、`HERO_DAMAGE_RATIO`、`AI_MIN_ATTACK_TROOPS`、
+`AI_ATTACK_ADVANTAGE` 等）；征兵与搜索成功率仍是内联字面量。
+
+---
+
+#### 2.16 `window.prompt` 作为输入方式
+
+**文件**: `MenuScene.js:618-630`
+
+自定义君主表单使用 `window.prompt` 获取文本输入。体验差，部分环境会阻止。
+
+**✅ 已修复**：WebView2 不实现 `window.prompt`，故在 `src/platform/dialog.js`
+用 DOM 覆盖层实现了 `promptText`/`confirmDialog`/`notify`，支持 Enter 确认与 Escape 取消。
+
+---
+
+### P3 — 缺失功能建议
 
 | 功能 | 说明 |
 |------|------|
-| 胜负判定 | 无游戏结束条件，无法通关或失败 |
-| 游戏教程 | 新玩家无引导 |
-| 音效系统 | 完全没有音频 |
-| 设置选项 | 无法调节音量、战斗速度等 |
-| 多存档槽 | 只支持单存档（slot 0） |
-| 战斗回放 | 战斗日志只保留 50 条，无法回看 |
-| 武将详情面板 | 无法查看武将完整属性和技能描述 |
+| 音效系统 | 完全无音频，战斗/点击/回合切换均无声效 |
+| 地图缩放 | 1200×900 地图在 1280×720 视口中需要拖拽查看，无缩放支持 |
+| 多存档槽 | 仅支持 slot 0 |
+| 战斗回放 | `state.log` 保留 50 条但无回看界面 |
+| 武将详情面板 | 无法查看完整属性和技能描述 |
+| 新手教程 | 无引导 |
+| 设置选项 | 无战斗速度/音量调节 |
 
 ---
 
-## 六、架构建议
-
-### 6.1 引入模块化
-
-当前所有代码挂在 `window.SG3` 上，文件间通过全局变量通信。建议：
-- 使用 ES6 Module（`import/export`），或至少使用 IIFE 模式减少全局污染
-- 将数据（cities/heroes/skills）拆为 JSON 文件按需加载
-
-### 6.2 场景间通信规范化
-
-当前场景间通过 `window.SG3.GameData` 共享状态，场景切换时手动 `stop/start`。建议：
-- 使用 Phaser 的 `scene.sleep()` / `scene.wake()` 替代 `stop/start`，保留场景状态
-- 通过事件系统（`this.events.emit/on`）通信，减少直接耦合
-
-### 6.3 数据与逻辑分离
-
-`cities.js`、`heroes.js`、`skills.js` 将数据混在 JS 中。建议拆为独立 JSON 文件，通过 `this.load.json()` 加载，便于维护和修改。
-
----
-
-## 七、总结
+## 三、总结
 
 | 级别 | 数量 | 关键项 |
 |------|------|--------|
-| P0 严重 | 3 | 路径穿越、自动结算卡死、存档丢失自定义势力 |
-| P1 重要 | 6 | 无胜负判定、天命全局唯一、君主保护过度等 |
-| P2 质量 | 10 | 死代码、CDN 无降级、重复代码、魔法数字等 |
-| P3 建议 | 7 | 胜负判定、教程、音效等缺失功能 |
+| P0 严重 | 0 | 上轮 3 项已全部修复 |
+| P1 重要 | 0 | 本轮 4 项已全部修复（区域标签、攻击动画、技能天命、技能胜负） |
+| P2 质量 | 12 | 序列化函数丢失、征兵无代价、AI不攻空城/不防守、重复代码等 |
+| P3 建议 | 7 | 音效、缩放、多存档等 |
 
-**优先修复顺序**：
-1. server.js 路径穿越（安全）
-2. 自动结算战斗兜底（崩溃）
-3. 存档恢复自定义势力（数据丢失）
-4. 君主保护 + 天命全局唯一（战斗死锁）
-5. 胜负判定（游戏完整性）
-6. 清理死代码（可维护性）
+### 优先修复建议
+
+1. ~~**P1-2.1**: 地图区域标签不可见~~ ✅ 已修复
+2. ~~**P1-2.3**: 技能不触发天命~~ ✅ 已修复
+3. ~~**P1-2.4**: 技能不检查胜负~~ ✅ 已修复
+4. ~~**P1-2.2**: 攻击动画断裂~~ ✅ 已修复
+5. **P2-2.7**: 征兵士气惩罚 — 改系数
+6. **P2-2.11**: AI 不攻空城 — 移除 none 过滤
