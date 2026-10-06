@@ -656,6 +656,7 @@ class BattleScene extends Phaser.Scene {
     if (BE) BE.applyResult();
 
     this.game.scene.stop('BattleScene');
+    // 队列里若还有待结算的战斗，MapScene.create 末尾会立即接续下一场
     this.game.scene.start('MapScene');
   }
 

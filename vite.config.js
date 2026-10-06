@@ -8,7 +8,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    host: '127.0.0.1'
+    host: '127.0.0.1',
+    watch: {
+      // 编辑器保存文件时会生成 .xxx.tmpdir 临时目录，chokidar 若监听到
+      // 其中被独占锁定的临时文件会抛 EBUSY 并让整个 dev server 退出。
+      // 这些目录与构建无关，直接忽略。
+      ignored: ['**/.*tmpdir*/**', '**/*.tmp']
+    }
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {

@@ -38,7 +38,14 @@ export function showToast(scene, msg, duration = 2000) {
   }
 
   const container = scene.add.container(0, 0, [bg, text]);
-  bg.setInteractive();
+  // 提示气泡绝不能拦截输入：它位于画布顶部（y=90，深度 9999），
+  // 而地图上方的城市（如平原 y≈104）正落在气泡覆盖范围内。
+  // 若把气泡设为可交互，上一次操作弹出的提示（例如「出征失败」）
+  // 会吞掉下一次对城池的点击，玩家表现为「点不开城市面板」，
+  // 且症状总是紧跟一次失败提示出现，极具迷惑性。
+  // 气泡只做展示，故显式关闭其交互（含子对象的 hitArea）。
+  bg.disableInteractive();
+  if (bg.input) bg.input.enabled = false;
   container.setDepth(9999);
 
   scene.tweens.add({

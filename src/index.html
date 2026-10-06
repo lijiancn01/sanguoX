@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 内联空图标：避免 WebView 请求不存在的 /favicon.ico 而污染控制台错误 -->
+  <link rel="icon" href="data:," />
   <title>三国群英传</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
