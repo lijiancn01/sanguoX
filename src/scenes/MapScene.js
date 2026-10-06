@@ -65,30 +65,56 @@ class MapScene extends Phaser.Scene {
     this._mapContainer.y = Math.min(50, initY);
 
     // 拖拽事件
+    // 关键：拖拽只能在「空白地图区域」按下时启动。城池图标、面板按钮等
+    // 可交互对象自身的 pointerdown 同样会冒泡到场景级监听器，若不加判断，
+    // 点击城池也会把 _dragging 置为 true。此后只要再到达一个 pointermove
+    // （例如 CDP 点击前先派发 mouseMoved，或真实鼠标的轻微抖动），
+    // 地图就会整体平移（实测偏移 (581,15)），等 mousePressed 落下时
+    // 图标已从光标下移走，城市面板便不会打开 —— 表现为「有时点得开、
+    // 有时点不开」的间歇性失败。这里用 hitTestPointer 排除「按在可交互
+    // 对象上」的情形，使点击与拖拽彻底分离。
     this.input.on('pointerdown', function(pointer) {
-      if (pointer.y > 50 && pointer.y < this._ch - 40) {
-        this._dragging = true;
-        this._dragStartX = pointer.x;
-        this._dragStartY = pointer.y;
-        this._mapStartX = this._mapContainer.x;
-        this._mapStartY = this._mapContainer.y;
-      }
+      if (pointer.y <= 50 || pointer.y >= this._ch - 40) return;
+      var hits = this.input.hitTestPointer(pointer) || [];
+      if (hits.length > 0) return;
+      this._dragging = true;
+      this._dragStartX = pointer.x;
+      this._dragStartY = pointer.y;
+      this._mapStartX = this._mapContainer.x;
+      this._mapStartY = this._mapContainer.y;
     }, this);
 
     this.input.on('pointermove', function(pointer) {
-      if (this._dragging) {
-        var dx = pointer.x - this._dragStartX;
-        var dy = pointer.y - this._dragStartY;
-        this._mapContainer.x = this._mapStartX + dx;
-        this._mapContainer.y = this._mapStartY + dy;
-      }
+      if (!this._dragging) return;
+      // 兜底：只有按键仍处于按下状态才平移。若 _dragging 因某种原因残留
+      // （例如 pointerup 事件丢失），一个「未按键的移动」就会把地图平移出去，
+      // 使随后的点击全部落空。这里用 pointer.isDown 直接判定物理按键状态，
+      // 一旦发现按键已松开就顺手复位，彻底消除残留状态的影响。
+      if (!pointer.isDown) { this._dragging = false; return; }
+      var dx = pointer.x - this._dragStartX;
+      var dy = pointer.y - this._dragStartY;
+      this._mapContainer.x = this._mapStartX + dx;
+      this._mapContainer.y = this._mapStartY + dy;
     }, this);
 
+    // 抬起 / 移出画布 / 指针被取消时都要复位，避免 _dragging 残留到下一次点击
     this.input.on('pointerup', function() {
+      this._dragging = false;
+    }, this);
+    this.input.on('pointerupoutside', function() {
+      this._dragging = false;
+    }, this);
+    this.input.on('gameout', function() {
       this._dragging = false;
     }, this);
 
     // 检查是否从战斗场景返回
+    if (GD.phase === 'battle' && GD.battle) {
+      // 上一场战斗结算后队列里仍有待处理战斗：立即接续，不要静默丢弃
+      this.game.scene.stop('MapScene');
+      this.game.scene.start('BattleScene');
+      return;
+    }
     if (GD.phase === 'strategic') {
       this._refreshAll();
     }
@@ -250,42 +276,48 @@ class MapScene extends Phaser.Scene {
       var isPass = city.type === 'pass';
 
       // 城池图标
+      // 注意：图标必须以「自身原点」绘制，再用 icon.x/icon.y 定位到城池坐标。
+      // 若改用 city.x/city.y 这样的绝对坐标绘制，Graphics 的原点仍停在 (0,0)，
+      // 那么 pointerover 的 setScale(1.15) 会绕容器原点放大，把图标连同命中区
+      // 一起甩出去（实测云南偏移 (+42,+89) 像素，玩家悬停后必然点不中城池）。
       var icon;
       if (isPass) {
-        // 关隘：画城门图标
+        // 关隘：画城门图标（以 (0,0) 为中心，向下 33px 为命中区）
         icon = this.add.graphics();
         icon.fillStyle(0x6a5a3a, 1);
-        icon.fillRect(city.x - 14, city.y - 10, 28, 20);
+        icon.fillRect(-14, -10, 28, 20);
         icon.fillStyle(color, 1);
-        icon.fillRect(city.x - 10, city.y - 6, 20, 16);
+        icon.fillRect(-10, -6, 20, 16);
         // 城门洞
         icon.fillStyle(0x3a2a1a, 1);
-        icon.fillRect(city.x - 4, city.y - 2, 8, 12);
+        icon.fillRect(-4, -2, 8, 12);
         // 城墙垛口
         icon.fillStyle(0x5a4a2a, 1);
-        icon.fillRect(city.x - 14, city.y - 13, 6, 4);
-        icon.fillRect(city.x - 3, city.y - 13, 6, 4);
-        icon.fillRect(city.x + 8, city.y - 13, 6, 4);
-        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 14, city.y - 13, 28, 33), Phaser.Geom.Rectangle.Contains);
+        icon.fillRect(-14, -13, 6, 4);
+        icon.fillRect(-3, -13, 6, 4);
+        icon.fillRect(8, -13, 6, 4);
+        icon.setPosition(city.x, city.y);
+        icon.setInteractive(new Phaser.Geom.Rectangle(-14, -13, 28, 33), Phaser.Geom.Rectangle.Contains);
       } else {
         // 城池：画城楼图标
         icon = this.add.graphics();
         // 底座
         icon.fillStyle(0x8a7a5a, 1);
-        icon.fillRoundedRect(city.x - 16, city.y - 8, 32, 20, 2);
+        icon.fillRoundedRect(-16, -8, 32, 20, 2);
         // 城墙色
         icon.fillStyle(color, 1);
-        icon.fillRoundedRect(city.x - 13, city.y - 5, 26, 16, 2);
+        icon.fillRoundedRect(-13, -5, 26, 16, 2);
         // 屋顶
         icon.fillStyle(0x5a3a1a, 1);
-        icon.fillTriangle(city.x, city.y - 18, city.x - 14, city.y - 6, city.x + 14, city.y - 6);
+        icon.fillTriangle(0, -18, -14, -6, 14, -6);
         // 旗杆
         icon.fillStyle(0x4a3a2a, 1);
-        icon.fillRect(city.x - 1, city.y - 24, 2, 8);
+        icon.fillRect(-1, -24, 2, 8);
         // 旗帜
         icon.fillStyle(color, 1);
-        icon.fillTriangle(city.x + 1, city.y - 24, city.x + 10, city.y - 21, city.x + 1, city.y - 18);
-        icon.setInteractive(new Phaser.Geom.Rectangle(city.x - 16, city.y - 24, 32, 36), Phaser.Geom.Rectangle.Contains);
+        icon.fillTriangle(1, -24, 10, -21, 1, -18);
+        icon.setPosition(city.x, city.y);
+        icon.setInteractive(new Phaser.Geom.Rectangle(-16, -24, 32, 36), Phaser.Geom.Rectangle.Contains);
       }
       icon.useHandCursor = true;
 
@@ -602,7 +634,18 @@ class MapScene extends Phaser.Scene {
     }));
     y += 24;
 
-    for (var hi = 0; hi < city.heroes.length; hi++) {
+    // 武将列表必须限高：每名武将占 36px，而面板高度只有 _ch-100。
+    // 后期一座城可能聚集 20+ 名武将（实测寿春 22 名），若全部平铺，
+    // 「征兵 / 搜索 / 出兵 / 关闭」等按钮会被推到画布之外（实测 y≈1158，
+    // 画布仅 720 高），玩家将完全无法操作该城。
+    // 这里按剩余高度裁剪列表，并提示还有多少名未显示。
+    var isMyCity = city.faction === GD.playerFaction;
+    // 列表之后要预留的空间：操作按钮 3 行 + 关闭按钮（非己方城市无按钮）
+    var reservedBelow = isMyCity ? (3 * (30 + 8) + 15 + 30) : (15 + 30);
+    var maxHeroRows = Math.max(1, Math.floor((panelH - y - reservedBelow) / 36));
+    var shownHeroes = Math.min(city.heroes.length, maxHeroRows);
+
+    for (var hi = 0; hi < shownHeroes; hi++) {
       var hero = GD.heroes[city.heroes[hi]];
       if (!hero) continue;
       var statusText = { idle: '待命', developing: '内政', marches: '行军' }[hero.status] || hero.status;
@@ -621,6 +664,14 @@ class MapScene extends Phaser.Scene {
         fontFamily: '"Microsoft YaHei", "SimHei", serif'
       }));
       y += 36;
+    }
+
+    if (city.heroes.length > shownHeroes) {
+      this._panelContainer.add(this.add.text(25, y, '…另有 ' + (city.heroes.length - shownHeroes) + ' 名武将未显示', {
+        fontSize: '12px', color: '#9a8a7a',
+        fontFamily: '"Microsoft YaHei", "SimHei", serif', fontStyle: 'italic'
+      }));
+      y += 20;
     }
 
     if (city.heroes.length === 0) {
@@ -817,6 +868,12 @@ class MapScene extends Phaser.Scene {
       }
     }
 
+    // 按兵力降序排列：BattleEngine.init 每方只取「前 5 名」参战，
+    // 因此把兵力最多的排在最前，能保证参战的确实是本城最强的 5 名武将。
+    // 若沿用城池内部的武将数组顺序，可能出现「兵力最高的排在后面而不参战」，
+    // 导致玩家看到的总兵力与实际参战兵力不符（实测寿春 22 名武将时偏差极大）。
+    availableHeroes.sort(function(a, b) { return b.troops - a.troops; });
+
     if (availableHeroes.length === 0) {
       var reason = '没有可出征的武将';
       if (allHeroes.length === 0) {
@@ -840,12 +897,15 @@ class MapScene extends Phaser.Scene {
       return;
     }
 
+    // 目标城市：既包括可进攻的敌对城市，也包括可增援的己方城市。
+    // 后端 _armyArrive 本就支持友方城市进驻，若这里只列敌对城，
+    // 后方武将将永远无法调往前线，中后期会陷入无法推进的死局。
     var targetCities = [];
     for (var j = 0; j < fromCity.adjacent.length; j++) {
       var adj = GD.cities[fromCity.adjacent[j]];
-      if (adj && adj.faction !== fromCity.faction) targetCities.push(adj);
+      if (adj) targetCities.push(adj);
     }
-    if (targetCities.length === 0) { this._showToast('没有可进攻的相邻城市'); return; }
+    if (targetCities.length === 0) { this._showToast('没有相邻城市'); return; }
 
     // 出征面板
     this._panelContainer.removeAll(true);
@@ -884,7 +944,15 @@ class MapScene extends Phaser.Scene {
     }
 
     var heroCheckboxes = [];
-    for (var hi = 0; hi < availableHeroes.length; hi++) {
+    // 武将勾选列表必须限高：与城市面板同理，后期一座城可能聚集 20+ 名武将，
+    // 若全部平铺会把「选择目标城市」和「确认出征」按钮推出画布（实测 22 名武将时
+    // 「出兵」按钮已在 y≈1158，而画布仅 720 高），玩家将无法出征。
+    // 这里为「目标城市列表 + 确认/取消按钮」预留固定高度后再裁剪武将列表。
+    var reservedForTargets = Math.max(1, targetCities.length) * 22 + 10 + 44;
+    var maxHeroRows = Math.max(1, Math.floor((panelH - y - reservedForTargets) / 22));
+    var shownHeroes = Math.min(availableHeroes.length, maxHeroRows);
+
+    for (var hi = 0; hi < shownHeroes; hi++) {
       (function(hero) {
         var statusLabel = hero.status === 'developing' ? '(内政)' : '';
         var isMonarch = hero.isMonarch;
@@ -913,6 +981,13 @@ class MapScene extends Phaser.Scene {
         y += isMonarch ? 24 : 22;
       })(availableHeroes[hi]);
     }
+    if (availableHeroes.length > shownHeroes) {
+      this._panelContainer.add(this.add.text(20, y, '…另有 ' + (availableHeroes.length - shownHeroes) + ' 名武将未显示', {
+        fontSize: '12px', color: '#9a8a7a',
+        fontFamily: '"Microsoft YaHei", "SimHei", serif', fontStyle: 'italic'
+      }));
+      y += 20;
+    }
     y += 8;
 
     this._panelContainer.add(this.add.text(15, y, '选择目标城市', {
@@ -921,25 +996,35 @@ class MapScene extends Phaser.Scene {
     }));
     y += 22;
 
-    var weakest = targetCities[0];
-    var weakestTroops = GD.getCityTotalTroops(weakest.id);
-    for (var m = 1; m < targetCities.length; m++) {
-      var tTroops = GD.getCityTotalTroops(targetCities[m].id);
-      if (tTroops < weakestTroops) { weakest = targetCities[m]; weakestTroops = tTroops; }
+    // 默认选中：优先「可进攻的敌对城市」里最弱的一座；全是友方时才默认增援
+    var weakest = null;
+    var weakestTroops = Infinity;
+    for (var m = 0; m < targetCities.length; m++) {
+      if (targetCities[m].faction === fromCity.faction) continue;
+      var mTroops = GD.getCityTotalTroops(targetCities[m].id);
+      if (mTroops < weakestTroops) { weakest = targetCities[m]; weakestTroops = mTroops; }
     }
+    if (!weakest) weakest = targetCities[0];
     var selectedTargetId = weakest.id;
 
     var targetRadios = [];
     var targetTexts = [];
-    for (var ti = 0; ti < targetCities.length; ti++) {
+    // 目标城市列表同样限高：寿春有 9 个相邻城市，若武将列表已占满，
+    // 这里仍会把「确认出征」按钮推出画布。
+    var reservedForButtons = 10 + 44;
+    var maxTargetRows = Math.max(1, Math.floor((panelH - y - reservedForButtons) / 22));
+    var shownTargets = Math.min(targetCities.length, maxTargetRows);
+    for (var ti = 0; ti < shownTargets; ti++) {
       (function(targetCity) {
         var targetTroops = GD.getCityTotalTroops(targetCity.id);
         var targetFactionName = (FACTION_NAMES && FACTION_NAMES[targetCity.faction]) || targetCity.faction;
         var passLabel = targetCity.type === 'pass' ? '[关] ' : '';
-        var targetText = passLabel + targetCity.name + '(' + targetFactionName + ',兵' + targetTroops + ')';
+        var isFriendly = targetCity.faction === fromCity.faction;
+        var actionLabel = isFriendly ? '[增援] ' : '';
+        var targetText = passLabel + actionLabel + targetCity.name + '(' + targetFactionName + ',兵' + targetTroops + ')';
         targetTexts.push(targetText);
         var radio = scene.add.text(20, y, '(' + (targetCity.id === selectedTargetId ? '●' : '○') + ') ' + targetText, {
-          fontSize: '13px', color: '#3a2a1a',
+          fontSize: '13px', color: isFriendly ? '#2a5a2a' : '#3a2a1a',
           fontFamily: '"Microsoft YaHei", "SimHei", serif',
           backgroundColor: targetCity.id === selectedTargetId ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)',
           padding: { x: 4, y: 2 }
@@ -959,6 +1044,13 @@ class MapScene extends Phaser.Scene {
         targetRadios.push(radio);
         y += 22;
       })(targetCities[ti]);
+    }
+    if (targetCities.length > shownTargets) {
+      this._panelContainer.add(this.add.text(20, y, '…另有 ' + (targetCities.length - shownTargets) + ' 座相邻城市未显示', {
+        fontSize: '12px', color: '#9a8a7a',
+        fontFamily: '"Microsoft YaHei", "SimHei", serif', fontStyle: 'italic'
+      }));
+      y += 20;
     }
     y += 10;
 
