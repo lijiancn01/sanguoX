@@ -44,6 +44,18 @@ class MapScene extends Phaser.Scene {
     this._armySprites = [];
     this._drawArmies();
 
+    // 地图缩放状态：必须在 _createHUD 之前就绪，
+    // 因为 HUD 上的 ＋/－/⟲ 按钮一被创建就可能收到点击，
+    // 若此时 _mapScale 还是 undefined，缩放会算出 NaN 并让地图彻底消失。
+    this._mapHomeX = 0;
+    this._mapHomeY = 0;
+    this._mapMinScale = 0.5;
+    this._mapMaxScale = 2.2;
+    this._mapDefaultScale = 1;
+    this._mapScale = 1;
+    this._dispatchHighlightLayer = null;
+    this._dispatchHighlightObjects = [];
+
     // HUD
     this._createHUD();
 
@@ -64,6 +76,19 @@ class MapScene extends Phaser.Scene {
     var initY = (this._ch - this._mapH) / 2 + 20;
     this._mapContainer.x = Math.min(10, initX);
     this._mapContainer.y = Math.min(50, initY);
+    // 记录归位坐标（缩放状态本身已在 _createHUD 之前初始化完毕）
+    this._mapHomeX = this._mapContainer.x;
+    this._mapHomeY = this._mapContainer.y;
+
+    // 滚轮缩放
+    this.input.on('wheel', function(pointer, gameObjects, deltaX, deltaY, deltaZ) {
+      if (pointer.y <= 50 || pointer.y >= this._ch - 40) return;   // 不在 HUD/底栏上滚
+      // Phaser 的 wheel 事件 delta 方向随平台而异，这里按绝对值判断方向，
+      // 再统一乘以衰减系数，避免某些环境滚轮完全无响应。
+      var factor = 1.1;
+      if (deltaY < 0) factor = 1 / 1.1;
+      this._zoomAroundScreen(pointer.x, pointer.y, factor);
+    }, this);
 
     // 拖拽事件
     // 关键：拖拽只能在「空白地图区域」按下时启动。城池图标、面板按钮等
@@ -96,6 +121,9 @@ class MapScene extends Phaser.Scene {
       var dy = pointer.y - this._dragStartY;
       this._mapContainer.x = this._mapStartX + dx;
       this._mapContainer.y = this._mapStartY + dy;
+      // 缩放后地图尺寸会变，拖拽范围必须跟着重算，
+      // 否则放大状态下仍按未缩放的范围限位，地图会被拖到看不见的位置。
+      this._clampMapPosition();
     }, this);
 
     // 抬起 / 移出画布 / 指针被取消时都要复位，避免 _dragging 残留到下一次点击
@@ -118,6 +146,160 @@ class MapScene extends Phaser.Scene {
     }
     if (GD.phase === 'strategic') {
       this._refreshAll();
+    }
+  }
+
+  /**
+   * 以屏幕上 (sx, sy) 点为中心缩放地图（factor 1.1 放大 10%；1/1.1 缩小 10%）。
+   *
+   * 做法：先反解 pivot 在地图容器内的局部坐标（容器已有缩放，故要除以当前
+   * scale），套用新缩放后回写容器位置，使该世界坐标仍落在同一个屏幕点上。
+   * 不做这步反解的话，缩放会连同容器原点一起漂移，视觉上像是「地图朝
+   * 左上角缩」，而不是以光标为中心。
+   */
+  _zoomAroundScreen(sx, sy, factor) {
+    var target = this._mapScale * factor;
+    target = Math.min(this._mapMaxScale, Math.max(this._mapMinScale, target));
+    if (Math.abs(target - this._mapScale) < 0.001) return;
+
+    // pivot 的容器局部坐标
+    var lx = (sx - this._mapContainer.x) / this._mapScale;
+    var ly = (sy - this._mapContainer.y) / this._mapScale;
+
+    this._mapScale = target;
+    this._mapContainer.setScale(target);
+    this._mapContainer.x = sx - lx * this._mapScale;
+    this._mapContainer.y = sy - ly * this._mapScale;
+
+    this._clampMapPosition();
+    this._updateZoomText();
+  }
+
+  /**
+   * 约束地图平移，防止把地图拖出可视区域过多（缩放后同样适用）。
+   * 放大后地图大于画布时，两端都要允许露出空白，否则无法把角落拖进来。
+   */
+  _clampMapPosition() {
+    var s = this._mapScale;
+    var mapW = this._mapW * s;
+    var mapH = this._mapH * s;
+    var minX = Math.min(0, this._cw - mapW + 40);
+    var maxX = this._cw - 40;
+    var minY = Math.min(0, this._ch - mapH + 60);
+    var maxY = this._ch - 80;
+    if (this._mapContainer.x < minX) this._mapContainer.x = minX;
+    if (this._mapContainer.x > maxX) this._mapContainer.x = maxX;
+    if (this._mapContainer.y < minY) this._mapContainer.y = minY;
+    if (this._mapContainer.y > maxY) this._mapContainer.y = maxY;
+  }
+
+  /** 还原默认视角：缩放 100% + 初始位置 */
+  _resetMapView() {
+    this._mapScale = this._mapDefaultScale;
+    this._mapContainer.setScale(this._mapDefaultScale);
+    this._mapContainer.x = this._mapHomeX;
+    this._mapContainer.y = this._mapHomeY;
+    this._updateZoomText();
+  }
+
+  _updateZoomText() {
+    if (this._zoomText && this._zoomText.setText) {
+      this._zoomText.setText(Math.round(this._mapScale * 100) + '%');
+    }
+  }
+
+  /**
+   * 出征高亮：己方城市绿色脉动光环、目标城市红色脉动光环、
+   * 以及两者之间的行军路线与进攻方向箭头。
+   *
+   * 全部挂到 _mapContainer 之下，因此随地图一起平移与缩放，坐标直接用
+   * 城池的地图坐标即可，不必换算。
+   */
+  _showDispatchHighlight(fromCityId, targetCityId) {
+    this._clearDispatchHighlight();
+    if (!this._dispatchHighlightLayer) {
+      this._dispatchHighlightLayer = this.add.container(0, 0);
+      this._mapContainer.add(this._dispatchHighlightLayer);
+    }
+    this._dispatchHighlightObjects = [];
+    if (fromCityId) this._addCityHighlight(fromCityId, 0x33cc55, 'rgba(40,160,60,0.9)', '我方');
+    if (targetCityId) this._addCityHighlight(targetCityId, 0xff3322, 'rgba(200,40,30,0.9)', '目标');
+    if (fromCityId && targetCityId) this._addMarchLine(fromCityId, targetCityId);
+  }
+
+  /** 为单个城市添加脉动光环与标签 */
+  _addCityHighlight(cityId, colorInt, cssColor, label) {
+    var city = this._gd.cities[cityId];
+    if (!city || !this._dispatchHighlightLayer) return;
+
+    // 把 Graphics 的原点挪到圆心，缩放动画才会绕圆心而不是绕 (0,0) 晃动
+    var ring = this.add.graphics();
+    ring.setPosition(city.x, city.y);
+    ring.lineStyle(3, colorInt, 1);
+    ring.strokeCircle(0, 0, 26);
+    ring.lineStyle(1, colorInt, 0.5);
+    ring.strokeCircle(0, 0, 33);
+    this._dispatchHighlightLayer.add(ring);
+    this._dispatchHighlightObjects.push(ring);
+    this.tweens.add({
+      targets: ring, scaleX: 1.18, scaleY: 1.18,
+      duration: 750, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    var tag = this.add.text(city.x, city.y - 42, label, {
+      fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
+      color: '#ffffff', backgroundColor: cssColor,
+      padding: { x: 6, y: 2 }, fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this._dispatchHighlightLayer.add(tag);
+    this._dispatchHighlightObjects.push(tag);
+  }
+
+  /** 行军路线：闪烁实线 + 指向目标的箭头 */
+  _addMarchLine(fromCityId, targetCityId) {
+    var fromCity = this._gd.cities[fromCityId];
+    var toCity = this._gd.cities[targetCityId];
+    if (!fromCity || !toCity || !this._dispatchHighlightLayer) return;
+
+    var line = this.add.graphics();
+    line.lineStyle(3, 0xff6633, 0.85);
+    line.beginPath();
+    line.moveTo(fromCity.x, fromCity.y);
+    line.lineTo(toCity.x, toCity.y);
+    line.strokePath();
+    this._dispatchHighlightLayer.add(line);
+    this._dispatchHighlightObjects.push(line);
+    this.tweens.add({
+      targets: line, alpha: 0.25,
+      duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+
+    var angle = Math.atan2(toCity.y - fromCity.y, toCity.x - fromCity.x);
+    var arrowDist = 30;
+    var ax = toCity.x - Math.cos(angle) * arrowDist;
+    var ay = toCity.y - Math.sin(angle) * arrowDist;
+    var arrow = this.add.graphics();
+    arrow.fillStyle(0xff5533, 1);
+    arrow.beginPath();
+    arrow.moveTo(ax, ay);
+    arrow.lineTo(ax - Math.cos(angle - 0.5) * 12, ay - Math.sin(angle - 0.5) * 12);
+    arrow.lineTo(ax - Math.cos(angle + 0.5) * 12, ay - Math.sin(angle + 0.5) * 12);
+    arrow.closePath();
+    arrow.fillPath();
+    this._dispatchHighlightLayer.add(arrow);
+    this._dispatchHighlightObjects.push(arrow);
+  }
+
+  /** 清除出征高亮：必须同时停掉 tween，否则会对已销毁对象持续补间 */
+  _clearDispatchHighlight() {
+    if (this._dispatchHighlightObjects) {
+      for (var i = 0; i < this._dispatchHighlightObjects.length; i++) {
+        this.tweens.killTweensOf(this._dispatchHighlightObjects[i]);
+      }
+      this._dispatchHighlightObjects = [];
+    }
+    if (this._dispatchHighlightLayer) {
+      this._dispatchHighlightLayer.removeAll(true);
     }
   }
 
@@ -457,6 +639,22 @@ class MapScene extends Phaser.Scene {
       });
     }).setDepth(21);
 
+    // 地图缩放控件（右上角）。滚轮已可缩放，这里提供按钮与百分比显示，
+    // 便于没有滚轮或不知道快捷操作的玩家使用。
+    this._createHUDButton(w - 110, '＋', function() {
+      scene._zoomAroundScreen(scene._cw / 2, scene._ch / 2, 1.2);
+    }).setDepth(21);
+    this._createHUDButton(w - 80, '－', function() {
+      scene._zoomAroundScreen(scene._cw / 2, scene._ch / 2, 1 / 1.2);
+    }).setDepth(21);
+    this._createHUDButton(w - 50, '⟲', function() {
+      scene._resetMapView();
+    }).setDepth(21);
+    this._zoomText = this.add.text(w - 80, 39, '100%', {
+      fontSize: '10px', color: '#e8d4b0',
+      fontFamily: '"Microsoft YaHei", "SimHei", serif'
+    }).setOrigin(0.5).setDepth(21);
+
     // 底部栏
     var bottombar = this.add.graphics().setDepth(20);
     bottombar.fillGradientStyle(0x2a1a0a, 0x3a2a1a, 0x1a0a00, 0x2a1a0a, 1);
@@ -524,6 +722,8 @@ class MapScene extends Phaser.Scene {
 
     this._panelContainer.removeAll(true);
     this._panelVisible = true;
+    // 打开城市面板意味着出征已结束/取消，清掉出征高亮
+    this._clearDispatchHighlight();
 
     var panelW = 340;
     var panelH = this._ch - 100;
@@ -879,6 +1079,8 @@ class MapScene extends Phaser.Scene {
     // 出征面板
     this._panelContainer.removeAll(true);
     this._panelVisible = true;
+    // 清掉上一次出征遗留的高亮（可能来自上一次打开面板后直接取消）
+    this._clearDispatchHighlight();
 
     var panelW = 360;
     var panelH = this._ch - 100;
@@ -980,6 +1182,9 @@ class MapScene extends Phaser.Scene {
     if (!weakest) weakest = targetCities[0];
     var selectedTargetId = weakest.id;
 
+    // 初始即高亮：我方城池绿环 + 默认目标红环 + 行军路线
+    this._showDispatchHighlight(fromCityId, selectedTargetId);
+
     var targetRadios = [];
     var targetTexts = [];
     // 目标城市列表同样限高：寿春有 9 个相邻城市，若武将列表已占满，
@@ -1011,6 +1216,9 @@ class MapScene extends Phaser.Scene {
             targetRadios[r].setText('(' + (rCity.id === selectedTargetId ? '●' : '○') + ') ' + rText);
             targetRadios[r].setBackgroundColor(rCity.id === selectedTargetId ? 'rgba(255,215,0,0.2)' : 'rgba(0,0,0,0)');
           }
+          // 切换目标后立即更新地图上的红环与路线，避免面板显示的目标
+          // 与地图高亮不一致（曾出现面板选 A、地图亮 B 的错觉）
+          scene._showDispatchHighlight(fromCityId, selectedTargetId);
         });
 
         scene._panelContainer.add(radio);
