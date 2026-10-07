@@ -81,11 +81,15 @@ const initState = await ev(`(() => {
     canvas: { w: s._cw, h: s._ch }
   };
 })()`);
-check('默认缩放已放大（明显大于 1）', initState.mapScale > 1.15, initState.mapScale);
+// 注意：坐标系已整体放大 COORD_SCALE 倍，_mapScale 是世界空间倍率，
+// 数值只有 1/COORD_SCALE 上下（实测约 0.21），不是屏幕倍率。
+// 因此断言一律用「相对初始倍率」与「屏幕上的实际占幅」，
+// 不能直接断言 _mapScale > 1。
+const relScale = initState.mapScale / initState.defaultScale;
+check('默认缩放与自适应值一致', relScale >= 0.99 && relScale <= 1.01, { relScale });
 check('缩放值在允许范围内', initState.mapScale >= initState.min && initState.mapScale <= initState.max, initState);
 check('容器 scale 与 _mapScale 一致', initState.containerScaleX === initState.mapScale, initState);
-check('缩放比例文字存在', initState.zoomText !== null, initState.zoomText);
-check('_mapDefaultScale 等于自适应缩放', initState.defaultScale === initState.mapScale, initState);
+check('缩放比例文字显示为 100%', initState.zoomText === '100%', initState.zoomText);
 
 // 自适应缩放的核心断言：城池应明显放大，左右不再有大片空白
 const sv = initState.screen;
@@ -99,14 +103,17 @@ check('城池横向占画布 55% 以上（左右不再大片留白）',
 check('左右留白对称（居中正确）',
   Math.abs(leftPad - rightPad) <= 2, { leftPad, rightPad });
 // 纵向允许有界溢出：地图本就支持拖拽，溢出部分靠拖动查看。
-// 这里守住的是"不能溢出太多"，否则放大就失去意义。
 const overflow = Math.max(0, -sv.top) + Math.max(0, sv.bottom - cv.h);
 check('纵向溢出不超过可用高度的 25%',
   overflow <= usableH * 0.25, { overflow, usableH, pct: Math.round(overflow / usableH * 100) });
-check('纵向实际被放大（高度占比 ≥ 95%）',
-  (sv.bottom - sv.top) >= usableH * 0.95, { used: sv.bottom - sv.top, usableH });
+// 纵向占幅不会等于 100%：自适应刻意在包围盒外留 PAD（城池图标半宽），
+// 否则最上/最下的城池会被画布边缘切掉。实测 556/618 ≈ 90%，
+// 差额正好是上下各 PAD。这个断言守住的是"没有异常留白"。
+check('纵向实际被放大（高度占比 ≥ 85%）',
+  (sv.bottom - sv.top) >= usableH * 0.85, { used: sv.bottom - sv.top, usableH, pct: Math.round((sv.bottom - sv.top) / usableH * 100) });
 
 console.log('\n=== 2. 以指针为中心缩放 ===');
+const base = await ev(`window.__SG3__.game.scene.getScene('MapScene')._mapScale`);
 const zoomed = await ev(`(() => {
   const s = window.__SG3__.game.scene.getScene('MapScene');
   // 以画布左上角 (300,200) 为中心放大两次
@@ -114,7 +121,8 @@ const zoomed = await ev(`(() => {
   s._zoomAroundScreen(300, 200, 1.2);
   return { scale: s._mapScale, x: s._mapContainer.x, y: s._mapContainer.y };
 })()`);
-check('放大后 _mapScale 上升', zoomed.scale > 1.4, zoomed);
+// 世界坐标已放大，倍率约为 1/COORD_SCALE，故比较相对变化而非绝对值
+check('放大后 _mapScale 上升', zoomed.scale > base * 1.1, { base, now: zoomed.scale });
 const containerScale = await ev(`(() => {
   const s = window.__SG3__.game.scene.getScene('MapScene');
   return s._mapContainer.scaleX;
@@ -175,7 +183,8 @@ check('还原确实从放大状态回退', reset.zoomedIn > reset.scale, { zoome
 check('还原后位置回到自适应值',
   Math.abs(reset.x - reset.fx) < 0.01 && Math.abs(reset.y - reset.fy) < 0.01, reset);
 check('还原后文字与缩放一致',
-  reset.text === Math.round(reset.scale * 100) + '%', { text: reset.text, scale: reset.scale });
+  reset.text === Math.round((reset.scale / reset.fitScale) * 100) + '%',
+  { text: reset.text, rel: reset.scale / reset.fitScale });
 
 console.log('\n=== 5. 出征高亮 ===');
 const hl = await ev(`(() => {

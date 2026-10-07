@@ -20,6 +20,7 @@ import {
   BUILTIN_FACTION_IDS,
   INITIAL_FACTION_TREASURY,
   LEGACY_FACTION_REMAP,
+  COORD_SCALE,
   factionName,
   factionCss
 } from './config.js';
@@ -74,10 +75,15 @@ const GD = {
       this.factions[fId] = { gold: t.gold, food: t.food };
     }
 
-    // 深拷贝城市数据
+    // 深拷贝城市数据，并按 COORD_SCALE 放大坐标。
+    // 在这里统一变换而不是改 cities.js 源数据，是为了让源文件保持
+    // 可读的原始地理比例；坐标进入运行时世界时已是放大后的值。
+    // 存档序列化的是 this.cities，因此读档得到的也是放大后的坐标，两边一致。
     this.cities = {};
     for (const cd of CITIES_DATA) {
       const city = { ...cd, heroes: cd.heroes.slice() };
+      city.x = cd.x * COORD_SCALE;
+      city.y = cd.y * COORD_SCALE;
       city.developAssign = { agriculture: null, commerce: null };
       this.cities[city.id] = city;
     }

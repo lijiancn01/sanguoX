@@ -13,6 +13,30 @@ export const CONFIG = {
 };
 
 /**
+ * 地图坐标系比例。
+ *
+ * `cities.js` 里的坐标是为「1200×900 的地图区域」手工排布的（实测跨度
+ * 700×535，最近两座城池仅隔 22px）。这个尺度下密集区的绕行计算精度不足，
+ * 因此把世界坐标整体放大 COORD_SCALE 倍，给路点留出更细的取值空间。
+ *
+ * 关键约束：**所有以世界坐标表达的长度都必须乘同一个比例**，否则图标、
+ * 命中区、道路避让半径会与城池坐标脱节（图标会相对城池偏出去）。
+ * 文字标签的 `fontSize` 是屏幕像素，不在此列——放大坐标后仍用同一字号，
+ * 因此屏幕观感基本不变，只是密集处有了更多可绕行的余地。
+ *
+ * 改这个值后必须跑：
+ *   node scripts/check-map-scale.mjs     坐标/比例一致性
+ *   node scripts/check-route-avoid.mjs   道路绕行覆盖率
+ */
+export const COORD_SCALE = 5;
+
+/** 地图区域尺寸（世界坐标，已按 COORD_SCALE 换算） */
+export const MAP_SIZE = {
+  width: CONFIG.mapWidth * COORD_SCALE,
+  height: CONFIG.mapHeight * COORD_SCALE
+};
+
+/**
  * 势力数值色（Phaser Graphics 用）。
  *
  * 固定势力的颜色是「势力身份」的一部分：魏=蓝、蜀=红、吴=绿、自定义=黄 为约定，

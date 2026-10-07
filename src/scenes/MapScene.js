@@ -5,7 +5,7 @@
 
 import Phaser from 'phaser';
 import GameData from '../core/GameData.js';
-import { FACTION_COLORS, FACTION_NAMES, FACTION_CSS } from '../core/config.js';
+import { FACTION_COLORS, FACTION_NAMES, FACTION_CSS, CONFIG, COORD_SCALE, MAP_SIZE } from '../core/config.js';
 import { drawHeroAvatar } from '../core/portraits.js';
 import { saveGame, loadGame } from '../platform/storage.js';
 import { showToast } from '../core/utils.js';
@@ -27,9 +27,13 @@ class MapScene extends Phaser.Scene {
     // 地图容器（可拖拽平移）
     this._mapContainer = this.add.container(0, 0);
 
-    // 绘制地图背景
-    this._mapW = 1200;
-    this._mapH = 900;
+    // 绘制地图背景。
+    // 地图区域尺寸随 COORD_SCALE 一同放大，与城池坐标处于同一世界空间。
+    this._mapW = MAP_SIZE.width;
+    this._mapH = MAP_SIZE.height;
+    // 本场景所有「以世界坐标表达的长度」都从这里取，
+    // 集中乘一次比例，避免与城池坐标脱节。
+    this._W = function (px) { return px * COORD_SCALE; };
     this._drawTerrain();
 
     // 绘制相邻连线（道路）
@@ -49,8 +53,11 @@ class MapScene extends Phaser.Scene {
     // 若此时 _mapScale 还是 undefined，缩放会算出 NaN 并让地图彻底消失。
     this._mapHomeX = 0;
     this._mapHomeY = 0;
-    this._mapMinScale = 0.5;
-    this._mapMaxScale = 2.2;
+    // 缩放上下限按坐标系换算：玩家可见的等效倍率仍是 0.5~2.2 倍。
+    // 世界坐标放大后，自适应倍率会落到 1/COORD_SCALE 附近（实测约 0.21），
+    // 若下限仍写 0.5 会把地图强行放大，反而破坏「坐标放大但观感不变」的前提。
+    this._mapMinScale = 0.5 / COORD_SCALE;
+    this._mapMaxScale = 2.2 / COORD_SCALE;
     this._mapDefaultScale = 1;
     this._mapScale = 1;
     this._dispatchHighlightLayer = null;
@@ -214,8 +221,8 @@ class MapScene extends Phaser.Scene {
       };
     }
 
-    // 城池图标有约 28px 的点击半径，四周留出余量
-    var PAD = 30;
+    // 城池图标有约 28px 的点击半径，四周留出余量（换算到当前世界坐标尺度）
+    var PAD = 30 * COORD_SCALE;
     var TOP = 56;     // 顶部 HUD 高度
     var BOTTOM = 46;  // 底部提示栏高度
     var viewW = this._cw;
@@ -234,7 +241,12 @@ class MapScene extends Phaser.Scene {
     // 两端被切掉的部分可用拖拽查看，⟲ 按钮随时还原。
     var fitW = viewW / spanX;
     var fitH = viewH / spanY;
-    var scale = Math.min(fitW, fitH * 1.25);
+    // 目标：屏幕观感不变。这要求容器倍率 = 1/COORD_SCALE，
+    // 而 fitH 恰好接近该值（实测 0.2077 vs 0.2），fitW 明显更大。
+    // 因此以高度为准：纵向正好铺满、图标回到原始屏幕尺寸；
+    // 横向剩余空白是城池分布本身的宽高比（1.31）小于视口（2.07）造成的，
+    // 不靠拉伸地图来填满——那会把图标放大约 60%。
+    var scale = fitH;
     scale = Math.min(this._mapMaxScale, Math.max(this._mapMinScale, scale));
 
     // 让城池包围盒中心落在可用视口中心
@@ -303,7 +315,11 @@ class MapScene extends Phaser.Scene {
 
   _updateZoomText() {
     if (this._zoomText && this._zoomText.setText) {
-      this._zoomText.setText(Math.round(this._mapScale * 100) + '%');
+      // 显示「相对初始倍率」的百分比，而不是原始的 _mapScale。
+      // 坐标系放大 COORD_SCALE 倍后 _mapScale 只有 0.2 上下，
+      // 直接乘 100 会让玩家看到"20%"，误以为地图被缩小了。
+      var rel = this._mapScale / (this._mapDefaultScale || 1);
+      this._zoomText.setText(Math.round(rel * 100) + '%');
     }
   }
 
@@ -335,9 +351,9 @@ class MapScene extends Phaser.Scene {
     var ring = this.add.graphics();
     ring.setPosition(city.x, city.y);
     ring.lineStyle(3, colorInt, 1);
-    ring.strokeCircle(0, 0, 26);
+    ring.strokeCircle(0, 0, 26 * COORD_SCALE);
     ring.lineStyle(1, colorInt, 0.5);
-    ring.strokeCircle(0, 0, 33);
+    ring.strokeCircle(0, 0, 33 * COORD_SCALE);
     this._dispatchHighlightLayer.add(ring);
     this._dispatchHighlightObjects.push(ring);
     this.tweens.add({
@@ -345,11 +361,12 @@ class MapScene extends Phaser.Scene {
       duration: 750, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
 
-    var tag = this.add.text(city.x, city.y - 42, label, {
+    var tag = this.add.text(city.x, city.y - 42 * COORD_SCALE, label, {
       fontSize: '12px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
       color: '#ffffff', backgroundColor: cssColor,
       padding: { x: 6, y: 2 }, fontStyle: 'bold'
     }).setOrigin(0.5);
+    tag.setScale(COORD_SCALE);
     this._dispatchHighlightLayer.add(tag);
     this._dispatchHighlightObjects.push(tag);
   }
@@ -374,15 +391,17 @@ class MapScene extends Phaser.Scene {
     });
 
     var angle = Math.atan2(toCity.y - fromCity.y, toCity.x - fromCity.x);
-    var arrowDist = 30;
+    // 箭头尺寸是世界坐标，须按比例换算
+    var arrowDist = 30 * COORD_SCALE;
+    var arrowWing = 12 * COORD_SCALE;
     var ax = toCity.x - Math.cos(angle) * arrowDist;
     var ay = toCity.y - Math.sin(angle) * arrowDist;
     var arrow = this.add.graphics();
     arrow.fillStyle(0xff5533, 1);
     arrow.beginPath();
     arrow.moveTo(ax, ay);
-    arrow.lineTo(ax - Math.cos(angle - 0.5) * 12, ay - Math.sin(angle - 0.5) * 12);
-    arrow.lineTo(ax - Math.cos(angle + 0.5) * 12, ay - Math.sin(angle + 0.5) * 12);
+    arrow.lineTo(ax - Math.cos(angle - 0.5) * arrowWing, ay - Math.sin(angle - 0.5) * arrowWing);
+    arrow.lineTo(ax - Math.cos(angle + 0.5) * arrowWing, ay - Math.sin(angle + 0.5) * arrowWing);
     arrow.closePath();
     arrow.fillPath();
     this._dispatchHighlightLayer.add(arrow);
@@ -404,12 +423,17 @@ class MapScene extends Phaser.Scene {
 
   // 绘制地形背景
   _drawTerrain() {
-    var mw = this._mapW, mh = this._mapH;
+    // 地形内部仍按原始 1200×900 的坐标书写（区域块、黄河、长江、山脉都是
+    // 手工排布的），统一挂到带 COORD_SCALE 缩放的容器上，
+    // 这样不必逐个改写几十个硬编码坐标，也不会有漏改导致的比例不一致。
+    var holder = this.add.container(0, 0);
+    holder.setScale(COORD_SCALE);
     var g = this.add.graphics();
+    holder.add(g);
 
     // 底色：古地图羊皮纸渐变
     g.fillGradientStyle(0xf2e8d5, 0xf2e8d5, 0xe8dcc4, 0xe8dcc4, 1);
-    g.fillRect(0, 0, mw, mh);
+    g.fillRect(0, 0, CONFIG.mapWidth, CONFIG.mapHeight);
 
     // 区域底色（淡淡的区域区分）
     var regions = [
@@ -476,12 +500,13 @@ class MapScene extends Phaser.Scene {
     this._drawMountains(g, 250, 530, 350, 580, 0xc8b898);
     this._drawMountains(g, 440, 550, 530, 590, 0xc8b898);
 
-    // 外边框
+    // 外边框。g 在带缩放的 holder 内，故这里用原始尺寸，
+    // 否则边框会是地图的 5 倍。
     g.lineStyle(3, 0x8a7a5a, 0.6);
-    g.strokeRect(0, 0, mw, mh);
+    g.strokeRect(0, 0, CONFIG.mapWidth, CONFIG.mapHeight);
 
     // 先将地形Graphics加入容器，再添加文字标签（确保文字渲染在上层）
-    this._mapContainer.add(g);
+    this._mapContainer.add(holder);
 
     // 区域文字标注
     var regionLabels = [
@@ -495,10 +520,17 @@ class MapScene extends Phaser.Scene {
     ];
     for (var ri = 0; ri < regionLabels.length; ri++) {
       var rl = regionLabels[ri];
-      this._mapContainer.add(this.add.text(rl.x, rl.y, rl.text, {
-        fontSize: rl.size, fontFamily: '"Microsoft YaHei", "SimHei", serif',
-        color: rl.color, fontStyle: 'bold'
-      }).setOrigin(0.5).setAlpha(0.3));
+      // 区域标注是文字，挂在未缩放的 _mapContainer 上：
+      // 位置按比例换算；字号需 setScale 反向抵消容器缩放，
+      // 否则 18px 的字在 0.2 倍容器下只有约 4px 高。
+      var regionText = this.add.text(
+        rl.x * COORD_SCALE, rl.y * COORD_SCALE, rl.text, {
+          fontSize: rl.size, fontFamily: '"Microsoft YaHei", "SimHei", serif',
+          color: rl.color, fontStyle: 'bold'
+        }
+      ).setOrigin(0.5).setAlpha(0.3);
+      regionText.setScale(COORD_SCALE);
+      this._mapContainer.add(regionText);
     }
   }
 
@@ -524,8 +556,8 @@ class MapScene extends Phaser.Scene {
   _drawAdjacentLines() {
     var GD = this._gd;
     var line = this.add.graphics();
-    // 城池图标半径：道路两端要收缩到这个距离之外，避免压在图标上
-    var CLEAR = 30;
+    // 道路两端要收缩到图标边缘之外（换算到当前世界坐标尺度）
+    var CLEAR = 30 * COORD_SCALE;
     var drawn = {};
 
     for (var cityId in GD.cities) {
@@ -541,9 +573,9 @@ class MapScene extends Phaser.Scene {
 
         var pts = this._routeBetween(city, adj, CLEAR);
         if (pts.length < 2) continue;
-        // 外描边让道路在浅色地形上更清晰
-        this._strokeRoute(line, pts, 5, 0x6a5a3a, 0.22);
-        this._strokeRoute(line, pts, 2, 0xb8a888, 0.6);
+        // 外描边让道路在浅色地形上更清晰（线宽是世界坐标，须按比例换算）
+        this._strokeRoute(line, pts, 5 * COORD_SCALE, 0x6a5a3a, 0.22);
+        this._strokeRoute(line, pts, 2 * COORD_SCALE, 0xb8a888, 0.6);
       }
     }
     this._mapContainer.add(line);
@@ -600,9 +632,11 @@ class MapScene extends Phaser.Scene {
     var nx = -uy;
     var ny = ux;
     var side = (a.id < b.id) ? 1 : -1;
-    var baseArc = Math.min(18, len * 0.09) * side;
+    var baseArc = Math.min(18 * COORD_SCALE, len * 0.09) * side;
 
-    var pts = this._sampleArc(sx, sy, ex, ey, nx, ny, baseArc, Math.max(12, Math.min(26, Math.round(len / 9))));
+    // 采样密度按世界尺度换算，保证放大后弧线依旧平滑
+    var segs = Math.max(12, Math.min(26, Math.round(len / (9 * COORD_SCALE))));
+    var pts = this._sampleArc(sx, sy, ex, ey, nx, ny, baseArc, segs);
     return this._avoidCities(pts, a, b);
   }
 
@@ -633,7 +667,7 @@ class MapScene extends Phaser.Scene {
   /** 把落入第三方城池覆盖圆的点沿径向推到圆外 */
   _pushOutOfCities(pts, a, b) {
     var GD = this._gd;
-    var R = 29;               // 比图标半径略大，留一点余量
+    var R = 29 * COORD_SCALE;    // 比图标半径略大，留一点余量
     var out = [];
     for (var i = 0; i < pts.length; i++) {
       var px = pts[i].x;
@@ -719,7 +753,7 @@ class MapScene extends Phaser.Scene {
    */
   _countOcclusions(pts, a, b) {
     var GD = this._gd;
-    var R = 26;
+    var R = 26 * COORD_SCALE;
     var count = 0;
     for (var p = 0; p < pts.length; p++) {
       for (var id in GD.cities) {
@@ -765,7 +799,11 @@ class MapScene extends Phaser.Scene {
         icon.fillRect(-3, -13, 6, 4);
         icon.fillRect(8, -13, 6, 4);
         icon.setPosition(city.x, city.y);
-        icon.setInteractive(new Phaser.Geom.Rectangle(-14, -13, 28, 33), Phaser.Geom.Rectangle.Contains);
+        icon.setScale(COORD_SCALE);
+        icon.setInteractive(
+          new Phaser.Geom.Rectangle(-14, -13, 28, 33),
+          Phaser.Geom.Rectangle.Contains
+        );
       } else {
         // 城池：画城楼图标
         icon = this.add.graphics();
@@ -785,24 +823,38 @@ class MapScene extends Phaser.Scene {
         icon.fillStyle(color, 1);
         icon.fillTriangle(1, -24, 10, -21, 1, -18);
         icon.setPosition(city.x, city.y);
-        icon.setInteractive(new Phaser.Geom.Rectangle(-16, -24, 32, 36), Phaser.Geom.Rectangle.Contains);
+        // 图标几何仍按原始尺度绘制，统一用 setScale 放大到当前世界坐标，
+        // 这样不必把上面十几个坐标逐一乘比例，也不会漏改。
+        // 悬停时的 1.15 倍要在此基础上叠乘（见下方 pointerover）。
+        icon.setScale(COORD_SCALE);
+        icon.setInteractive(
+          new Phaser.Geom.Rectangle(-16, -24, 32, 36),
+          Phaser.Geom.Rectangle.Contains
+        );
       }
       icon.useHandCursor = true;
 
-      // 城市名称
+      // 城市名称。
+      // 两个独立的换算：
+      //  ① 偏移量是相对城池的世界坐标 → 乘 COORD_SCALE；
+      //  ② 字号写在屏幕像素上，但 Text 会随 _mapContainer 的缩放一起被缩放，
+      //     而容器当前倍率约 1/COORD_SCALE，字会被压到几乎看不见。
+      //     故用 setScale(COORD_SCALE) 反向抵消，使屏幕上的字高与原始一致。
       var nameColor = isPass ? '#6a4a1a' : '#3a2a1a';
-      var label = this.add.text(city.x, city.y + 18, city.name, {
+      var label = this.add.text(city.x, city.y + 18 * COORD_SCALE, city.name, {
         fontSize: isPass ? '11px' : '13px',
         fontFamily: '"Microsoft YaHei", "SimHei", serif',
         color: nameColor, stroke: '#f5f0e8', strokeThickness: 3,
         fontStyle: isPass ? 'normal' : 'bold'
       }).setOrigin(0.5);
+      label.setScale(COORD_SCALE);
 
       // 兵力
-      var troops = this.add.text(city.x, city.y + 32, '', {
+      var troops = this.add.text(city.x, city.y + 32 * COORD_SCALE, '', {
         fontSize: '10px', fontFamily: '"Microsoft YaHei", "SimHei", serif',
         color: '#7a6a5a', stroke: '#f5f0e8', strokeThickness: 2
       }).setOrigin(0.5);
+      troops.setScale(COORD_SCALE);
 
       this._mapContainer.add([icon, label, troops]);
       this._citySprites[cityId] = icon;
@@ -814,8 +866,10 @@ class MapScene extends Phaser.Scene {
           pointer.event.stopPropagation();
           scene._showCityPanel(cid);
         });
-        icon.on('pointerover', function() { icon.setScale(1.15); });
-        icon.on('pointerout', function() { icon.setScale(1); });
+        // 悬停放大要叠乘在基准比例之上：这里 setScale(COORD_SCALE)，
+        // 若写成 setScale(1.15) 会把图标缩回原始尺寸（看着突然变小）。
+        icon.on('pointerover', function() { icon.setScale(COORD_SCALE * 1.15); });
+        icon.on('pointerout', function() { icon.setScale(COORD_SCALE); });
       })(cityId);
     }
   }
@@ -854,7 +908,7 @@ class MapScene extends Phaser.Scene {
       var my = (fromCity.y + toCity.y) / 2;
       var armyColor = FACTION_COLORS[army.faction] || 0x888888;
 
-      // 军旗
+      // 军旗。几何按原始尺度绘制，再用 setScale 统一放大到世界坐标
       var flag = this.add.graphics();
       // 旗杆
       flag.fillStyle(0x4a3a2a, 1);
@@ -864,11 +918,15 @@ class MapScene extends Phaser.Scene {
       flag.fillTriangle(mx + 1, my - 16, mx + 16, my - 12, mx + 1, my - 8);
       flag.lineStyle(1, 0x3a2a1a, 1);
       flag.strokeTriangle(mx + 1, my - 16, mx + 16, my - 12, mx + 1, my - 8);
+      // 以旗杆底部为缩放锚点，避免缩放时旗子偏离行军路线中点
+      flag.setScale(COORD_SCALE, COORD_SCALE, mx, my);
 
-      var flagLabel = this.add.text(mx, my + 6, army.heroIds.length + '将', {
+      var flagLabel = this.add.text(mx, my + 6 * COORD_SCALE, army.heroIds.length + '将', {
         fontSize: '10px', color: '#3a2a1a', stroke: '#f5f0e8', strokeThickness: 2,
         fontFamily: '"Microsoft YaHei", "SimHei", serif'
       }).setOrigin(0.5);
+      // 反向抵消 _mapContainer 的缩放，文字才不会被压小
+      flagLabel.setScale(COORD_SCALE);
 
       this._mapContainer.add([flag, flagLabel]);
       this._armySprites.push(flag);
