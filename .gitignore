@@ -8,4 +8,11 @@ dist/
 # 验证脚本运行时生成的截图
 scripts/*.png
 
+# 人物立绘：仅供本地自用，来源与授权未逐一核实，不随仓库分发
+public/portraits/
+
+# 素材探测过程中产生的临时图片与对照图
+scripts/_probe-portraits/
+scripts/_probe-grid/
+
 .workbuddy/
