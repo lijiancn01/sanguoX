@@ -6,9 +6,9 @@
  */
 export const CITIES_DATA = [
   // ===== 西北 =====
-  { id:'wuwei', name:'武威', x:180, y:130, faction:'qun', agriculture:45, commerce:35, morale:40, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['xiliang','tianshui'], region:'xibei' },
-  { id:'xiliang', name:'西凉', x:230, y:185, faction:'qun', agriculture:40, commerce:35, morale:40, defense:45, troops:4000, maxTroops:8000, heroes:['lvbu','yanliang','wenchou'], adjacent:['wuwei','tianshui','anding'], region:'xibei' },
-  { id:'tianshui', name:'天水', x:310, y:195, faction:'qun', agriculture:55, commerce:45, morale:45, defense:50, troops:3000, maxTroops:8000, heroes:['yuanshao'], adjacent:['wuwei','xiliang','anding','changan','jieting'], region:'xibei' },
+  { id:'wuwei', name:'武威', x:180, y:130, faction:'lvbu', agriculture:45, commerce:35, morale:40, defense:45, troops:2000, maxTroops:6000, heroes:[], adjacent:['xiliang','tianshui'], region:'xibei' },
+  { id:'xiliang', name:'西凉', x:230, y:185, faction:'lvbu', agriculture:40, commerce:35, morale:40, defense:45, troops:4000, maxTroops:8000, heroes:['lvbu'], adjacent:['wuwei','tianshui','anding'], region:'xibei' },
+  { id:'tianshui', name:'天水', x:310, y:195, faction:'lvbu', agriculture:55, commerce:45, morale:45, defense:50, troops:3000, maxTroops:8000, heroes:[], adjacent:['wuwei','xiliang','anding','changan','jieting'], region:'xibei' },
   { id:'anding', name:'安定', x:370, y:170, faction:'none', agriculture:50, commerce:40, morale:45, defense:45, troops:1800, maxTroops:5500, heroes:[], adjacent:['xiliang','tianshui','changan'], region:'xibei' },
   { id:'jieting', name:'街亭', x:360, y:250, faction:'none', agriculture:40, commerce:30, morale:40, defense:40, troops:1500, maxTroops:5000, heroes:[], adjacent:['tianshui','changan','hanzhong'], region:'xibei' },
 
@@ -35,11 +35,11 @@ export const CITIES_DATA = [
   { id:'daixun', name:'代郡', x:570, y:110, faction:'none', agriculture:45, commerce:35, morale:45, defense:40, troops:1800, maxTroops:5500, heroes:[], adjacent:['yanmenguan','jinyang','beiping','ji'], region:'hebei' },
   { id:'jinyang', name:'晋阳', x:480, y:145, faction:'none', agriculture:55, commerce:45, morale:50, defense:50, troops:2000, maxTroops:6000, heroes:[], adjacent:['yanmenguan','daixun','ye','huguan','ji'], region:'hebei' },
   { id:'ji', name:'蓟', x:560, y:90, faction:'none', agriculture:50, commerce:45, morale:50, defense:50, troops:2500, maxTroops:7000, heroes:[], adjacent:['daixun','jinyang','beiping','zhuojun'], region:'hebei' },
-  { id:'beiping', name:'北平', x:680, y:85, faction:'qun', agriculture:50, commerce:45, morale:50, defense:40, troops:2000, maxTroops:6000, heroes:[], adjacent:['ji','daixun','pingyuan','zhuojun','ye'], region:'hebei' },
-  { id:'zhuojun', name:'涿郡', x:610, y:120, faction:'none', agriculture:50, commerce:40, morale:50, defense:35, troops:1500, maxTroops:5000, heroes:[], adjacent:['beiping','ji','yanmenguan','pingyuan'], region:'hebei' },
+  { id:'beiping', name:'北平', x:680, y:85, faction:'yuanshao', agriculture:50, commerce:45, morale:50, defense:40, troops:6000, maxTroops:6000, heroes:['yuanshao'], adjacent:['ji','daixun','pingyuan','zhuojun','ye'], region:'hebei' },
+  { id:'zhuojun', name:'涿郡', x:610, y:120, faction:'yuanshao', agriculture:50, commerce:40, morale:50, defense:35, troops:5000, maxTroops:5000, heroes:['yanliang','wenchou'], adjacent:['beiping','ji','yanmenguan','pingyuan'], region:'hebei' },
   { id:'huguan', name:'壶关', x:540, y:210, faction:'none', type:'pass', agriculture:15, commerce:8, morale:55, defense:85, troops:2000, maxTroops:5000, heroes:[], adjacent:['ye','jinyang','luoyang','puyang'], region:'hebei' },
   { id:'ye', name:'邺', x:580, y:190, faction:'wei', agriculture:70, commerce:75, morale:60, defense:65, troops:5000, maxTroops:10000, heroes:['zhangliao','dianwei'], adjacent:['huguan','jinyang','beiping','pingyuan','beihai','puyang'], region:'hebei' },
-  { id:'pingyuan', name:'平原', x:660, y:180, faction:'none', agriculture:55, commerce:50, morale:55, defense:40, troops:1800, maxTroops:5500, heroes:[], adjacent:['beiping','ye','beihai','zhuojun'], region:'hebei' },
+  { id:'pingyuan', name:'平原', x:660, y:180, faction:'zhangjiao', agriculture:55, commerce:50, morale:55, defense:40, troops:4000, maxTroops:5500, heroes:['zhangjiao'], adjacent:['beiping','ye','beihai','zhuojun'], region:'hebei' },
   { id:'beihai', name:'北海', x:740, y:210, faction:'none', agriculture:60, commerce:55, morale:55, defense:40, troops:2000, maxTroops:6000, heroes:[], adjacent:['pingyuan','xiapi','ye'], region:'hebei' },
 
   // ===== 蜀地 =====
@@ -50,7 +50,7 @@ export const CITIES_DATA = [
   { id:'chengdu', name:'成都', x:250, y:445, faction:'shu', agriculture:90, commerce:85, morale:80, defense:70, troops:8000, maxTroops:15000, heroes:['liubei','guanyu','zhangfei','pangtong'], adjacent:['jiange','zitong','jiangzhou','nanzhong'], region:'shu' },
   { id:'jiangzhou', name:'江州', x:330, y:460, faction:'shu', agriculture:65, commerce:55, morale:60, defense:50, troops:3000, maxTroops:8000, heroes:['machao'], adjacent:['chengdu','nanzhong','yongan'], region:'shu' },
   { id:"yongan", name:"永安", x:410, y:450, faction:'shu', agriculture:55, commerce:50, morale:60, defense:55, troops:2500, maxTroops:7000, heroes:['huangzhong'], adjacent:['jiangzhou','jiangling'], region:'shu' },
-  { id:'nanzhong', name:'南中', x:250, y:515, faction:'qun', agriculture:50, commerce:35, morale:40, defense:35, troops:2000, maxTroops:6000, heroes:['menghuo'], adjacent:['chengdu','jiangzhou','lingling','jiaozhou','jianning','yunnan'], region:'shu' },
+  { id:'nanzhong', name:'南中', x:250, y:515, faction:'menghuo', agriculture:50, commerce:35, morale:40, defense:35, troops:2000, maxTroops:6000, heroes:['menghuo'], adjacent:['chengdu','jiangzhou','lingling','jiaozhou','jianning','yunnan'], region:'shu' },
   { id:'shangyong', name:'上庸', x:430, y:315, faction:'shu', agriculture:55, commerce:45, morale:55, defense:45, troops:2000, maxTroops:6000, heroes:['weiyan'], adjacent:['hanzhong','xiangyang','xinye','wan'], region:'shu' },
 
   // ===== 荆州 =====
@@ -72,7 +72,7 @@ export const CITIES_DATA = [
   { id:'wu', name:'吴', x:840, y:440, faction:'none', agriculture:65, commerce:65, morale:55, defense:40, troops:2000, maxTroops:6000, heroes:[], adjacent:['jianye','kuaiji'], region:'jiangdong' },
 
   // ===== 交州/南中 =====
-  { id:'jiaozhou', name:'交州', x:490, y:620, faction:'none', agriculture:45, commerce:30, morale:35, defense:25, troops:1000, maxTroops:4000, heroes:['diaochan'], adjacent:['lingling','nanzhong','jianning'], region:'jiaozhou' },
+  { id:'jiaozhou', name:'交州', x:490, y:620, faction:'none', agriculture:45, commerce:30, morale:35, defense:25, troops:1000, maxTroops:4000, heroes:[], adjacent:['lingling','nanzhong','jianning'], region:'jiaozhou' },
   { id:'jianning', name:'建宁', x:330, y:560, faction:'none', agriculture:50, commerce:35, morale:40, defense:35, troops:1500, maxTroops:5000, heroes:[], adjacent:['nanzhong','jiaozhou','yunnan'], region:'jiaozhou' },
   { id:'yunnan', name:'云南', x:280, y:600, faction:'none', agriculture:45, commerce:30, morale:35, defense:30, troops:1500, maxTroops:5000, heroes:[], adjacent:['jianning','nanzhong'], region:'jiaozhou' }
 ];

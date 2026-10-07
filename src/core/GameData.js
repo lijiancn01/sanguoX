@@ -17,6 +17,9 @@ import {
   CITY_TROOP_RECOVER_RATE,
   HERO_RECOVER,
   AI_AUTO_BATTLE_MAX_ROUNDS,
+  BUILTIN_FACTION_IDS,
+  INITIAL_FACTION_TREASURY,
+  LEGACY_FACTION_REMAP,
   factionName,
   factionCss
 } from './config.js';
@@ -62,13 +65,14 @@ const GD = {
     this.battleQueue = [];
     this.customFactionId = null;
     this._lastEvent = null;
+    this._migrationNote = null;
 
-    this.factions = {
-      wei: { gold: 500, food: 500 },
-      shu: { gold: 400, food: 400 },
-      wu:  { gold: 400, food: 400 },
-      qun: { gold: 200, food: 200 }
-    };
+    // 各势力初始金粮来自 config，避免与配色表分处两地各自维护
+    this.factions = {};
+    for (const fId of BUILTIN_FACTION_IDS) {
+      const t = INITIAL_FACTION_TREASURY[fId] || { gold: 200, food: 200 };
+      this.factions[fId] = { gold: t.gold, food: t.food };
+    }
 
     // 深拷贝城市数据
     this.cities = {};
@@ -204,7 +208,7 @@ const GD = {
   // ===== 回合结束 =====
   endTurn() {
     // 1. 收集资源
-    const factionIds = ['wei', 'shu', 'wu', 'qun'];
+    const factionIds = BUILTIN_FACTION_IDS.slice();
     if (this.customFactionId && this.factions[this.customFactionId]) {
       factionIds.push(this.customFactionId);
     }
@@ -311,7 +315,7 @@ const GD = {
   },
 
   _processAITurns() {
-    const factionIds = ['wei', 'shu', 'wu', 'qun'];
+    const factionIds = BUILTIN_FACTION_IDS;
     for (const fId of factionIds) {
       if (fId === this.playerFaction) continue;
       if (this.factions[fId] && engines.ai) {
@@ -564,7 +568,77 @@ const GD = {
       registerCustomFaction(this.customFactionId, data.customFactionName, data.customFactionColor);
     }
     if (data.customSkills) importCustomSkills(data.customSkills);
+
+    this._migrateLegacyFactions();
     return { ok: true, msg: '' };
+  },
+
+  /**
+   * 迁移旧存档中已被拆分掉的势力 id。
+   *
+   * 旧版本把吕布/袁绍/张角/孟获等诸侯统一记为 'qun'（群雄）。这些 id 在新版
+   * 已不存在，若原样保留，对应城池不会产出资源、AI 也不会行动（僵尸势力）。
+   *
+   * 这里不按固定映射一刀切，而是查「该城在当前数据里的初始归属」：
+   * 城池仍属旧势力（说明未被玩家攻占）才改写，已被攻占的城池保持玩家/新势力不变。
+   * 武将同理，按其所在城池或自身初始归属改写。
+   */
+  _migrateLegacyFactions() {
+    const legacyIds = Object.keys(LEGACY_FACTION_REMAP);
+    if (legacyIds.length === 0) return;
+
+    const initialCityFaction = {};
+    for (const cd of CITIES_DATA) initialCityFaction[cd.id] = cd.faction;
+    const initialHeroFaction = {};
+    for (const hd of HEROES_DATA) initialHeroFaction[hd.id] = hd.faction;
+
+    const isLegacy = (f) => legacyIds.indexOf(f) !== -1;
+    let migratedCities = 0, migratedHeroes = 0;
+
+    for (const cid in this.cities) {
+      if (!Object.prototype.hasOwnProperty.call(this.cities, cid)) continue;
+      const city = this.cities[cid];
+      if (!isLegacy(city.faction)) continue;
+      const target = initialCityFaction[cid];
+      // 目标势力必须真实存在，否则保持原样交由后续逻辑兜底
+      if (!target || isLegacy(target)) continue;
+      city.faction = target;
+      migratedCities++;
+    }
+
+    for (const hid in this.heroes) {
+      if (!Object.prototype.hasOwnProperty.call(this.heroes, hid)) continue;
+      const hero = this.heroes[hid];
+      if (!isLegacy(hero.faction)) continue;
+      // 优先跟随所在城池，其次用初始归属
+      const loc = hero.location && this.cities[hero.location];
+      let target = loc ? loc.faction : initialHeroFaction[hid];
+      if (!target || isLegacy(target) || target === 'none') continue;
+      hero.faction = target;
+      migratedHeroes++;
+    }
+
+    // 势力金粮表：补上新势力、清掉已废弃的旧势力
+    if (this.factions) {
+      for (const legacy of legacyIds) {
+        if (!Object.prototype.hasOwnProperty.call(this.factions, legacy)) continue;
+        const t = INITIAL_FACTION_TREASURY[LEGACY_FACTION_REMAP[legacy]];
+        if (t && !this.factions[LEGACY_FACTION_REMAP[legacy]]) {
+          this.factions[LEGACY_FACTION_REMAP[legacy]] = { gold: t.gold, food: t.food };
+        }
+        delete this.factions[legacy];
+      }
+      for (const fId of BUILTIN_FACTION_IDS) {
+        if (!this.factions[fId]) {
+          const t = INITIAL_FACTION_TREASURY[fId] || { gold: 200, food: 200 };
+          this.factions[fId] = { gold: t.gold, food: t.food };
+        }
+      }
+    }
+
+    this._migrationNote = (migratedCities || migratedHeroes)
+      ? `已迁移旧存档势力：${migratedCities} 城 / ${migratedHeroes} 武将`
+      : null;
   },
 
   // ===== 自定义君主 =====

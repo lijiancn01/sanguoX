@@ -32,14 +32,14 @@ export const HEROES_DATA = [
   { id:'huanggai', name:'黄盖', faction:'wu', force:86, intellect:56, politics:50, command:76, charisma:58, loyalty:100, level:5, exp:0, skills:['kurou','nuji'], advisorSkill:null, maxTroops:7000, troopType:'infantry', sp:80, maxSp:80 },
   { id:'zhoutai', name:'周泰', faction:'wu', force:90, intellect:34, politics:24, command:70, charisma:52, loyalty:100, level:5, exp:0, skills:['buxiu','ganglie'], advisorSkill:null, maxTroops:7000, troopType:'infantry', sp:90, maxSp:90 },
 
-  // ===== 其他势力 =====
-  { id:'lvbu', name:'吕布', faction:'qun', force:100, intellect:26, politics:16, command:82, charisma:42, loyalty:40, level:8, exp:0, skills:['wushuang','feijiang'], advisorSkill:null, maxTroops:10000, troopType:'cavalry', sp:120, maxSp:120 },
-  { id:'diaochan', name:'貂蝉', faction:'qun', force:30, intellect:82, politics:72, command:40, charisma:98, loyalty:70, level:4, exp:0, skills:['lijian'], advisorSkill:'yaohuo', maxTroops:4000, troopType:'archer', sp:80, maxSp:80 },
-  { id:'yuanshao', name:'袁绍', faction:'qun', force:62, intellect:58, politics:72, command:70, charisma:78, loyalty:60, level:6, exp:0, skills:['mengjin','jiyi'], advisorSkill:'guwu', maxTroops:9000, troopType:'infantry', sp:100, maxSp:100 },
-  { id:'yanliang', name:'颜良', faction:'qun', force:90, intellect:34, politics:26, command:72, charisma:48, loyalty:80, level:5, exp:0, skills:['xuanfengzhan','nuji'], advisorSkill:null, maxTroops:7000, troopType:'cavalry', sp:90, maxSp:90 },
-  { id:'wenchou', name:'文丑', faction:'qun', force:90, intellect:30, politics:22, command:70, charisma:44, loyalty:80, level:5, exp:0, skills:['xuanfengzhan','ganglie'], advisorSkill:null, maxTroops:7000, troopType:'cavalry', sp:90, maxSp:90 },
-  { id:'zhangjiao', name:'张角', faction:'qun', force:48, intellect:86, politics:68, command:72, charisma:88, loyalty:60, level:6, exp:0, skills:['leiji','huoshao'], advisorSkill:'jimou', maxTroops:8000, troopType:'infantry', sp:120, maxSp:120 },
-  { id:'menghuo', name:'孟获', faction:'qun', force:86, intellect:28, politics:32, command:66, charisma:56, loyalty:50, level:5, exp:0, skills:['xiang','nuji'], advisorSkill:null, maxTroops:7000, troopType:'infantry', sp:80, maxSp:80 },
+  // ===== 其他势力（各自独立成军，颜色互不相同） =====
+  { id:'lvbu', name:'吕布', faction:'lvbu', force:100, intellect:26, politics:16, command:82, charisma:42, loyalty:40, level:8, exp:0, skills:['wushuang','feijiang'], advisorSkill:null, maxTroops:10000, troopType:'cavalry', sp:120, maxSp:120 },
+  { id:'diaochan', name:'貂蝉', faction:'none', force:30, intellect:82, politics:72, command:40, charisma:98, loyalty:70, level:4, exp:0, skills:['lijian'], advisorSkill:'yaohuo', maxTroops:4000, troopType:'archer', sp:80, maxSp:80 },
+  { id:'yuanshao', name:'袁绍', faction:'yuanshao', force:62, intellect:58, politics:72, command:70, charisma:78, loyalty:60, level:6, exp:0, skills:['mengjin','jiyi'], advisorSkill:'guwu', maxTroops:9000, troopType:'infantry', sp:100, maxSp:100 },
+  { id:'yanliang', name:'颜良', faction:'yuanshao', force:90, intellect:34, politics:26, command:72, charisma:48, loyalty:80, level:5, exp:0, skills:['xuanfengzhan','nuji'], advisorSkill:null, maxTroops:7000, troopType:'cavalry', sp:90, maxSp:90 },
+  { id:'wenchou', name:'文丑', faction:'yuanshao', force:90, intellect:30, politics:22, command:70, charisma:44, loyalty:80, level:5, exp:0, skills:['xuanfengzhan','ganglie'], advisorSkill:null, maxTroops:7000, troopType:'cavalry', sp:90, maxSp:90 },
+  { id:'zhangjiao', name:'张角', faction:'zhangjiao', force:48, intellect:86, politics:68, command:72, charisma:88, loyalty:60, level:6, exp:0, skills:['leiji','huoshao'], advisorSkill:'jimou', maxTroops:8000, troopType:'infantry', sp:120, maxSp:120 },
+  { id:'menghuo', name:'孟获', faction:'menghuo', force:86, intellect:28, politics:32, command:66, charisma:56, loyalty:50, level:5, exp:0, skills:['xiang','nuji'], advisorSkill:null, maxTroops:7000, troopType:'infantry', sp:80, maxSp:80 },
 
   // ===== 在野武将 =====
   { id:'jiangwei', name:'姜维', faction:'none', force:88, intellect:86, politics:68, command:90, charisma:72, loyalty:0, level:4, exp:0, skills:['guanxing','tuci'], advisorSkill:'jimou', maxTroops:7000, troopType:'cavalry', sp:100, maxSp:100 },

@@ -9,6 +9,7 @@ import { CITIES_DATA } from '../data/cities.js';
 import { hasSave as storageHasSave, loadGame as storageLoad } from '../platform/storage.js';
 import { promptText } from '../platform/dialog.js';
 import { showToast } from '../core/utils.js';
+import { CUSTOM_COLOR_PALETTE, CUSTOM_DEFAULT_COLOR, factionCss } from '../core/config.js';
 
 class MenuScene extends Phaser.Scene {
   constructor() {
@@ -32,12 +33,25 @@ class MenuScene extends Phaser.Scene {
       color: '#8a6d3b', fontStyle: 'italic'
     }).setOrigin(0.5);
 
-    // 势力卡片
-    var factions = [
-      { id: 'wei', name: '曹魏', color: '#4488cc', bgColor: 0x1a3a5a, desc: '挟天子以令诸侯\n雄踞中原沃土', leader: '曹操', cities: '十二城' },
-      { id: 'shu', name: '蜀汉', color: '#cc4444', bgColor: 0x5a1a1a, desc: '兴复汉室\n还于旧都长安', leader: '刘备', cities: '八城' },
-      { id: 'wu',  name: '东吴', color: '#44aa44', bgColor: 0x1a3a1a, desc: '据江东之天险\n虎视荆扬九州', leader: '孙权', cities: '十城' }
-    ];
+    // 势力卡片（颜色取自 config，城池数按实际数据统计，避免与数据脱节）
+    var CARD_BG = { wei: 0x1a3a5a, shu: 0x5a1a1a, wu: 0x1a3a1a };
+    var CARD_META = {
+      wei: { name: '曹魏', desc: '挟天子以令诸侯\n雄踞中原沃土', leader: '曹操' },
+      shu: { name: '蜀汉', desc: '兴复汉室\n还于旧都长安', leader: '刘备' },
+      wu:  { name: '东吴', desc: '据江东之天险\n虎视荆扬九州', leader: '孙权' }
+    };
+    var cityCount = { wei: 0, shu: 0, wu: 0 };
+    for (var ci0 = 0; ci0 < CITIES_DATA.length; ci0++) {
+      var cf = CITIES_DATA[ci0].faction;
+      if (Object.prototype.hasOwnProperty.call(cityCount, cf)) cityCount[cf]++;
+    }
+    var factions = ['wei', 'shu', 'wu'].map(function(fid) {
+      var meta = CARD_META[fid];
+      return {
+        id: fid, name: meta.name, color: factionCss(fid), bgColor: CARD_BG[fid],
+        desc: meta.desc, leader: meta.leader, cities: cityCount[fid] + '城'
+      };
+    });
 
     var cardWidth = 220, cardHeight = 280, gap = 50;
     var totalWidth = factions.length * cardWidth + (factions.length - 1) * gap;
@@ -370,17 +384,19 @@ class MenuScene extends Phaser.Scene {
     });
     formY += lineH;
 
-    // 势力颜色
+    // 势力颜色：取自 config 的统一色板，全部与固定势力色差异足够大（不会撞色）
     this._drawFormLabel(formX, formY, '势力颜色：');
-    var colors = ['#cc4444', '#4488cc', '#44aa44', '#cc8844', '#9944cc', '#44cccc'];
-    var colorLabels = ['赤红', '深蓝', '翠绿', '橙黄', '紫罗', '青碧'];
-    var selectedColor = '#cc4444';
+    var colors = CUSTOM_COLOR_PALETTE.map(function(o) { return o.color; });
+    var colorLabels = CUSTOM_COLOR_PALETTE.map(function(o) { return o.label; });
+    var selectedColor = CUSTOM_DEFAULT_COLOR; // 自定义君主默认黄色
     var colorBtns = [];
+    var defaultIdx = colors.indexOf(CUSTOM_DEFAULT_COLOR);
+    if (defaultIdx < 0) defaultIdx = 0;
     for (var ci = 0; ci < colors.length; ci++) {
       (function(color, label, idx) {
-        var cx = formX + 110 + idx * 42;
+        var cx = formX + 110 + idx * 48;
         var circle = scene.add.circle(cx, formY + 8, 15, Phaser.Display.Color.HexStringToColor(color).color);
-        circle.setStrokeStyle(idx === 0 ? 3 : 1, 0xffd700);
+        circle.setStrokeStyle(idx === defaultIdx ? 3 : 1, 0xffd700);
         circle.setInteractive({ useHandCursor: true });
         // 颜色名称提示
         var labelTxt = scene.add.text(cx, formY + 28, label, {
