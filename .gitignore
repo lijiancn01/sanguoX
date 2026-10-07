@@ -15,4 +15,9 @@ public/portraits/
 scripts/_probe-portraits/
 scripts/_probe-grid/
 
+# 旧版 node server.js 的运行日志。迁移到 Tauri 后已不使用，
+# 历史上被误提交过一次（内容是 EADDRINUSE 之类的报错堆栈）。
+server.err.log
+server.out.log
+
 .workbuddy/
