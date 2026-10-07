@@ -63,8 +63,10 @@ const EXPR = `(() => {
   for (const cid of out.targetIds) {
     const c = gd.cities[cid];
     if (!c) { out.cities[cid] = 'missing'; continue; }
-    const px = c.x + mc.x;
-    const py = c.y - 6 + mc.y;
+    // 必须乘 _mapScale：容器带缩放时屏幕位置是 c.x * scale + container.x
+    const sc = s._mapScale || 1;
+    const px = c.x * sc + mc.x;
+    const py = (c.y - 6) * sc + mc.y;
     out.cities[cid] = {
       name: c.name,
       faction: c.faction,

@@ -57,17 +57,54 @@ check('MapScene 已就绪', setup.ready, setup);
 
 const initState = await ev(`(() => {
   const s = window.__SG3__.game.scene.getScene('MapScene');
+  const GD = window.__SG3__.GameData;
+  // 计算城池包围盒，用于验证自适应缩放是否真的把城池铺满视口
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const id in GD.cities) {
+    const c = GD.cities[id];
+    minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
+    minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
+  }
+  const sc = s._mapScale;
+  const left = minX * sc + s._mapContainer.x;
+  const right = maxX * sc + s._mapContainer.x;
+  const top = minY * sc + s._mapContainer.y;
+  const bottom = maxY * sc + s._mapContainer.y;
   return {
     mapScale: s._mapScale,
     min: s._mapMinScale, max: s._mapMaxScale,
-    homeX: s._mapHomeX, homeY: s._mapHomeY,
+    defaultScale: s._mapDefaultScale,
     containerScaleX: s._mapContainer.scaleX,
-    zoomText: s._zoomText ? s._zoomText.text : null
+    zoomText: s._zoomText ? s._zoomText.text : null,
+    // 城池包围盒在屏幕上的位置
+    screen: { left: Math.round(left), right: Math.round(right), top: Math.round(top), bottom: Math.round(bottom) },
+    canvas: { w: s._cw, h: s._ch }
   };
 })()`);
-check('默认缩放为 1', initState.mapScale === 1, initState);
-check('容器 scale 与 _mapScale 一致', initState.containerScaleX === 1, initState);
-check('缩放比例文字存在', initState.zoomText === '100%', initState.zoomText);
+check('默认缩放已放大（明显大于 1）', initState.mapScale > 1.15, initState.mapScale);
+check('缩放值在允许范围内', initState.mapScale >= initState.min && initState.mapScale <= initState.max, initState);
+check('容器 scale 与 _mapScale 一致', initState.containerScaleX === initState.mapScale, initState);
+check('缩放比例文字存在', initState.zoomText !== null, initState.zoomText);
+check('_mapDefaultScale 等于自适应缩放', initState.defaultScale === initState.mapScale, initState);
+
+// 自适应缩放的核心断言：城池应明显放大，左右不再有大片空白
+const sv = initState.screen;
+const cv = initState.canvas;
+const usableH = cv.h - 56 - 46;   // 扣掉 HUD 与底栏
+const leftPad = sv.left;
+const rightPad = cv.w - sv.right;
+const usedW = sv.right - sv.left;
+check('城池横向占画布 55% 以上（左右不再大片留白）',
+  usedW / cv.w >= 0.55, { usedW, w: cv.w, pct: Math.round(usedW / cv.w * 100) });
+check('左右留白对称（居中正确）',
+  Math.abs(leftPad - rightPad) <= 2, { leftPad, rightPad });
+// 纵向允许有界溢出：地图本就支持拖拽，溢出部分靠拖动查看。
+// 这里守住的是"不能溢出太多"，否则放大就失去意义。
+const overflow = Math.max(0, -sv.top) + Math.max(0, sv.bottom - cv.h);
+check('纵向溢出不超过可用高度的 25%',
+  overflow <= usableH * 0.25, { overflow, usableH, pct: Math.round(overflow / usableH * 100) });
+check('纵向实际被放大（高度占比 ≥ 95%）',
+  (sv.bottom - sv.top) >= usableH * 0.95, { used: sv.bottom - sv.top, usableH });
 
 console.log('\n=== 2. 以指针为中心缩放 ===');
 const zoomed = await ev(`(() => {
@@ -115,13 +152,30 @@ check('缩放值非 NaN', Number.isFinite(clamped.maxReached) && Number.isFinite
 console.log('\n=== 4. 还原视角 ===');
 const reset = await ev(`(() => {
   const s = window.__SG3__.game.scene.getScene('MapScene');
-  s._zoomAroundScreen(300, 200, 1.5);
+  const def = s._computeFitView();
+  // 先回到自适应状态，再明确放大 1.5 倍，否则会受前序用例残留的
+  // 缩放值影响（本例实测 zoomedIn 反而比还原后更小，断言误报）。
   s._resetMapView();
-  return { scale: s._mapScale, x: s._mapContainer.x, y: s._mapContainer.y, hx: s._mapHomeX, hy: s._mapHomeY, text: s._zoomText.text };
+  const base = s._mapScale;
+  s._zoomAroundScreen(300, 200, 1.5);
+  const zoomedIn = s._mapScale;
+  s._resetMapView();
+  return {
+    scale: s._mapScale, fitScale: def.scale, base,
+    x: s._mapContainer.x, y: s._mapContainer.y,
+    fx: def.x, fy: def.y,
+    text: s._zoomText.text,
+    zoomedIn
+  };
 })()`);
-check('还原后缩放回 1', reset.scale === 1, reset);
-check('还原后位置回归位值', Math.abs(reset.x - reset.hx) < 0.01 && Math.abs(reset.y - reset.hy) < 0.01, reset);
-check('还原后文字回 100%', reset.text === '100%', reset.text);
+// 还原应回到「自适应缩放」，而不是硬编码的 100%：
+// 默认倍率由城池包围盒算出，实测约 1.25。
+check('还原后回到自适应缩放值', Math.abs(reset.scale - reset.fitScale) < 0.001, reset);
+check('还原确实从放大状态回退', reset.zoomedIn > reset.scale, { zoomedIn: reset.zoomedIn, back: reset.scale });
+check('还原后位置回到自适应值',
+  Math.abs(reset.x - reset.fx) < 0.01 && Math.abs(reset.y - reset.fy) < 0.01, reset);
+check('还原后文字与缩放一致',
+  reset.text === Math.round(reset.scale * 100) + '%', { text: reset.text, scale: reset.scale });
 
 console.log('\n=== 5. 出征高亮 ===');
 const hl = await ev(`(() => {

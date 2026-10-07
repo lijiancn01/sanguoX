@@ -71,14 +71,21 @@ class MapScene extends Phaser.Scene {
     this._mapStartX = 0;
     this._mapStartY = 0;
 
-    // 设置地图初始位置（居中）
-    var initX = (this._cw - this._mapW) / 2;
-    var initY = (this._ch - this._mapH) / 2 + 20;
-    this._mapContainer.x = Math.min(10, initX);
-    this._mapContainer.y = Math.min(50, initY);
-    // 记录归位坐标（缩放状态本身已在 _createHUD 之前初始化完毕）
-    this._mapHomeX = this._mapContainer.x;
-    this._mapHomeY = this._mapContainer.y;
+    // 设置地图初始位置与缩放：按城池实际包围盒自适应，而不是固定 1 倍。
+    // 实测 55 座城池只占据 700×535 的范围，而地图区域是 1200×900，
+    // 以 1 倍居中会在四周留下大片空白，看起来"地图偏小、路线挤在中间"。
+    // 这里让城池包围盒在扣除 HUD/底栏后的可用区域内尽量铺满。
+    var fit = this._computeFitView();
+    this._mapDefaultScale = fit.scale;
+    this._mapScale = fit.scale;
+    this._mapContainer.setScale(fit.scale);
+    this._mapContainer.x = fit.x;
+    this._mapContainer.y = fit.y;
+    this._mapHomeX = fit.x;
+    this._mapHomeY = fit.y;
+    // 同步百分比显示：_createHUD 里写死了 '100%'，
+    // 不刷新会让玩家看到"实际已放大 130% 但显示 100%"的错觉。
+    this._updateZoomText();
 
     // 滚轮缩放
     this.input.on('wheel', function(pointer, gameObjects, deltaX, deltaY, deltaZ) {
@@ -89,6 +96,27 @@ class MapScene extends Phaser.Scene {
       if (deltaY < 0) factor = 1 / 1.1;
       this._zoomAroundScreen(pointer.x, pointer.y, factor);
     }, this);
+
+    // 窗口尺寸变化后必须重新自适应：缩放与平移都是按旧画布尺寸算出来的，
+    // 不重算会留下明显不合适的倍率（实测窗口从 1280x720 拉到 1920x1137
+    // 后仍沿用旧值，显示成 179% 且上下大片溢出）。
+    // 用 debounce 合并连续 resize 事件，避免拖拽窗口时反复重排。
+    if (this.scale) {
+      var scene = this;
+      this._resizeHandler = function() {
+        if (scene._resizeTimer) scene._resizeTimer.remove();
+        scene._resizeTimer = scene.time.delayedCall(180, function() {
+          scene._resizeTimer = null;
+          if (!scene.scene.isActive()) return;
+          scene._refitView();
+        });
+      };
+      this.scale.on('resize', this._resizeHandler, this);
+      // 离开场景时解绑，避免场景重启后监听器叠加
+      this.events.once('shutdown', function() {
+        scene.scale.off('resize', scene._resizeHandler);
+      }, this);
+    }
 
     // 拖拽事件
     // 关键：拖拽只能在「空白地图区域」按下时启动。城池图标、面板按钮等
@@ -149,11 +177,81 @@ class MapScene extends Phaser.Scene {
     }
   }
 
+    /**
+   * 按当前画布尺寸重新自适应缩放与居中。
+   *
+   * 缩放与平移都是相对画布尺寸算出来的，画布变化后必须整体重算：
+   * ① 刷新 _cw/_ch（create() 时取过一次，之后一直沿用旧值）；
+   * ② 面板锚定在右侧，也要跟着挪；
+   * ③ 重新自适应缩放并居中。
+   */
+  _refitView() {
+    var cam = this.cameras.main;
+    this._cw = cam.width;
+    this._ch = cam.height;
+    if (this._panelContainer) {
+      this._panelContainer.x = this._cw - (this._panelW || 340) - 10;
+    }
+    this._resetMapView();
+  }
+
+  _computeFitView() {
+    var GD = this._gd;
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (var id in GD.cities) {
+      if (!GD.cities.hasOwnProperty(id)) continue;
+      var c = GD.cities[id];
+      if (c.x < minX) minX = c.x;
+      if (c.x > maxX) maxX = c.x;
+      if (c.y < minY) minY = c.y;
+      if (c.y > maxY) maxY = c.y;
+    }
+    if (!isFinite(minX)) {
+      return {
+        scale: 1,
+        x: (this._cw - this._mapW) / 2,
+        y: (this._ch - this._mapH) / 2
+      };
+    }
+
+    // 城池图标有约 28px 的点击半径，四周留出余量
+    var PAD = 30;
+    var TOP = 56;     // 顶部 HUD 高度
+    var BOTTOM = 46;  // 底部提示栏高度
+    var viewW = this._cw;
+    var viewH = this._ch - TOP - BOTTOM;
+
+    var spanX = (maxX - minX) + PAD * 2;
+    var spanY = (maxY - minY) + PAD * 2;
+
+    // 城池分布约 700x535（宽高比 1.31），而可用视口约 1280x618（宽高比 2.07），
+    // 因此「高度」总是先触顶：严格按 min(宽比, 高比) 缩放只有 1.02 倍，
+    // 左右各空出约 280px；而单按宽度铺满又会把纵向拉到 900px 以上，
+    // 上下城池都看不见。
+    //
+    // 取一个偏宽的折中值：横向按宽度算，纵向允许 25% 溢出。
+    // 实测约 1.25 倍——城池明显变大，同时南北仍基本完整可见；
+    // 两端被切掉的部分可用拖拽查看，⟲ 按钮随时还原。
+    var fitW = viewW / spanX;
+    var fitH = viewH / spanY;
+    var scale = Math.min(fitW, fitH * 1.25);
+    scale = Math.min(this._mapMaxScale, Math.max(this._mapMinScale, scale));
+
+    // 让城池包围盒中心落在可用视口中心
+    var cx = (minX + maxX) / 2;
+    var cy = (minY + maxY) / 2;
+    return {
+      scale: scale,
+      x: this._cw / 2 - cx * scale,
+      y: TOP + viewH / 2 - cy * scale
+    };
+  }
+
   /**
-   * 以屏幕上 (sx, sy) 点为中心缩放地图（factor 1.1 放大 10%；1/1.1 缩小 10%）。
+   * 以指针为中心缩放地图（factor 1.1 放大 10%；1/1.1 缩小 10%）。
    *
    * 做法：先反解 pivot 在地图容器内的局部坐标（容器已有缩放，故要除以当前
-   * scale），套用新缩放后回写容器位置，使该世界坐标仍落在同一个屏幕点上。
+   * scale），套用新缩放后回写容器位置，使该世界坐标仍对应该屏幕点。
    * 不做这步反解的话，缩放会连同容器原点一起漂移，视觉上像是「地图朝
    * 左上角缩」，而不是以光标为中心。
    */
@@ -193,12 +291,13 @@ class MapScene extends Phaser.Scene {
     if (this._mapContainer.y > maxY) this._mapContainer.y = maxY;
   }
 
-  /** 还原默认视角：缩放 100% + 初始位置 */
+  /** 还原默认视角：回到自适应铺满的缩放与位置 */
   _resetMapView() {
-    this._mapScale = this._mapDefaultScale;
-    this._mapContainer.setScale(this._mapDefaultScale);
-    this._mapContainer.x = this._mapHomeX;
-    this._mapContainer.y = this._mapHomeY;
+    var fit = this._computeFitView();
+    this._mapScale = fit.scale;
+    this._mapContainer.setScale(fit.scale);
+    this._mapContainer.x = fit.x;
+    this._mapContainer.y = fit.y;
     this._updateZoomText();
   }
 
@@ -425,7 +524,10 @@ class MapScene extends Phaser.Scene {
   _drawAdjacentLines() {
     var GD = this._gd;
     var line = this.add.graphics();
+    // 城池图标半径：道路两端要收缩到这个距离之外，避免压在图标上
+    var CLEAR = 30;
     var drawn = {};
+
     for (var cityId in GD.cities) {
       if (!GD.cities.hasOwnProperty(cityId)) continue;
       var city = GD.cities[cityId];
@@ -436,15 +538,198 @@ class MapScene extends Phaser.Scene {
         drawn[key] = true;
         var adj = GD.cities[adjId];
         if (!adj) continue;
-        // 道路：虚线效果
-        line.lineStyle(2, 0xb8a888, 0.5);
-        line.beginPath();
-        line.moveTo(city.x, city.y);
-        line.lineTo(adj.x, adj.y);
-        line.strokePath();
+
+        var pts = this._routeBetween(city, adj, CLEAR);
+        if (pts.length < 2) continue;
+        // 外描边让道路在浅色地形上更清晰
+        this._strokeRoute(line, pts, 5, 0x6a5a3a, 0.22);
+        this._strokeRoute(line, pts, 2, 0xb8a888, 0.6);
       }
     }
     this._mapContainer.add(line);
+  }
+
+  /**
+   * 描一条折线道路。
+   * Phaser 的 Graphics 没有二次曲线 API，道路由 _sampleArc 离散成折线后，
+   * 用多段 lineTo 逼近。
+   */
+  _strokeRoute(g, pts, width, color, alpha) {
+    g.lineStyle(width, color, alpha);
+    g.beginPath();
+    g.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.strokePath();
+  }
+
+  /**
+   * 计算两座城池之间的道路折线。
+   *
+   * 为什么必须绕行而不是直接画直线：实测 115 条道路里 25 条（22%）
+   * 存在「第三座城池几乎落在连线上」的情况——蓟—涿郡之间代郡的垂距
+   * 只有 12px，建业—会稽之间吴只有 4px。城池图标半径约 26px，
+   * 这些道路无论画成什么弧线都会被图标压住（连 ±3 倍弧量也无法避开）。
+   *
+   * 做法（逐点避让）：
+   *  1. 两端点朝对方各收缩 CLEAR，让道路起止于图标边缘之外；
+   *  2. 先算一条基准弧线（弧量与长度成正比，避免所有路都朝同侧弯）；
+   *  3. 沿弧线逐点检查，若某点落入某座第三方城池的覆盖圆，
+   *     就把该点沿「远离该城池」的方向推到圆外；
+   *  4. 平滑一遍折线，消除避让造成的尖角。
+   * 这样即使阻挡城池正压在连线上，路线也会像绕行小路一样从它旁边过去。
+   */
+  _routeBetween(a, b, CLEAR) {
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var len = Math.hypot(dx, dy);
+    if (len < 1) return [];
+
+    var ux = dx / len;
+    var uy = dy / len;
+    // 短边直接对切，长边按实际距离收缩
+    var trim = Math.min(CLEAR, len * 0.35);
+    var sx = a.x + ux * trim;
+    var sy = a.y + uy * trim;
+    var ex = b.x - ux * trim;
+    var ey = b.y - uy * trim;
+
+    // 基准弧：与长度成正比，短边几乎不弯，长边弯得明显。
+    // 弧向按城池 id 的哈希交替决定，使密集区里的道路朝不同侧弯开。
+    // 弧量刻意保守（上限 18px）：避让阶段已经会把路线推离阻挡城池，
+    // 基准弧过大再叠加避让，会在稀疏区出现明显的蛇形回绕。
+    var nx = -uy;
+    var ny = ux;
+    var side = (a.id < b.id) ? 1 : -1;
+    var baseArc = Math.min(18, len * 0.09) * side;
+
+    var pts = this._sampleArc(sx, sy, ex, ey, nx, ny, baseArc, Math.max(12, Math.min(26, Math.round(len / 9))));
+    return this._avoidCities(pts, a, b);
+  }
+
+  /**
+   * 把折线中落入第三方城池覆盖圆的点推到圆外。
+   *
+   * 避让与平滑交替进行：平滑去掉避让造成的尖角，避让把平滑拉回圆内的点
+   * 再推出去。权重刻意保守（自身 0.6 / 邻居各 0.2），否则平滑会把折线
+   * 大幅拉向直线，反而重新压进城池；迭代次数也控制在 2 轮，多了会
+   * 出现蛇形回绕。
+   * 全程保持首尾点不动，道路端点始终贴着图标边缘。
+   */
+  _avoidCities(pts, a, b) {
+    var current = pts;
+    for (var round = 0; round < 2; round++) {
+      current = this._pushOutOfCities(current, a, b);
+      current = this._smoothPath(current);
+    }
+    current = this._pushOutOfCities(current, a, b);
+    current[0].x = pts[0].x;
+    current[0].y = pts[0].y;
+    var last = current.length - 1;
+    current[last].x = pts[last].x;
+    current[last].y = pts[last].y;
+    return current;
+  }
+
+  /** 把落入第三方城池覆盖圆的点沿径向推到圆外 */
+  _pushOutOfCities(pts, a, b) {
+    var GD = this._gd;
+    var R = 29;               // 比图标半径略大，留一点余量
+    var out = [];
+    for (var i = 0; i < pts.length; i++) {
+      var px = pts[i].x;
+      var py = pts[i].y;
+      for (var id in GD.cities) {
+        if (!GD.cities.hasOwnProperty(id)) continue;
+        var c = GD.cities[id];
+        if (c === a || c === b) continue;
+        var d = Math.hypot(px - c.x, py - c.y);
+        if (d < R) {
+          // 正压在城池中心时（d≈0）无法取径向方向，改用竖直方向
+          var dirx, diry;
+          if (d < 0.001) { dirx = 0; diry = -1; }
+          else { dirx = (px - c.x) / d; diry = (py - c.y) / d; }
+          px = c.x + dirx * R;
+          py = c.y + diry * R;
+        }
+      }
+      out.push({ x: px, y: py });
+    }
+    // 收敛自交：避让把点推到圆外后，折线可能出现「折返」，
+    // 地图上表现为绕圈的"8"字路线。这里检测前进方向反转的折点，
+    // 直接让路连到下一点，跳过造成折返的那个点。
+    var clean = [out[0]];
+    for (var k = 1; k < out.length; k++) {
+      var prev = clean[clean.length - 1];
+      var cur = out[k];
+      var nxt = out[k + 1];
+      if (nxt) {
+        var v1x = cur.x - prev.x, v1y = cur.y - prev.y;
+        var v2x = nxt.x - cur.x, v2y = nxt.y - cur.y;
+        // 点积为负说明方向反转（折返）
+        if ((v1x * v2x + v1y * v2y) < 0) {
+          clean.push({ x: nxt.x, y: nxt.y });
+          k++;
+          continue;
+        }
+      }
+      clean.push({ x: cur.x, y: cur.y });
+    }
+    return clean.length >= 2 ? clean : out;
+  }
+
+  /**
+   * 折线平滑：自身权重 0.6、前后邻居各 0.2，消除避让造成的尖角。
+   * 首尾点固定不动。
+   */
+  _smoothPath(pts) {
+    if (pts.length < 3) return pts;
+    var out = [pts[0]];
+    for (var i = 1; i < pts.length - 1; i++) {
+      out.push({
+        x: (pts[i - 1].x * 0.2 + pts[i].x * 0.6 + pts[i + 1].x * 0.2),
+        y: (pts[i - 1].y * 0.2 + pts[i].y * 0.6 + pts[i + 1].y * 0.2)
+      });
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  /**
+   * 把二次贝塞尔弧离散成折线。Phaser Graphics 没有曲线 API，
+   * 只能用多段直线逼近；段数随长度增加。
+   */
+  _sampleArc(sx, sy, ex, ey, nx, ny, arc, segs) {
+    var cx = (sx + ex) / 2 + nx * arc;
+    var cy = (sy + ey) / 2 + ny * arc;
+    var pts = [];
+    for (var i = 0; i <= segs; i++) {
+      var t = i / segs;
+      var it = 1 - t;
+      pts.push({
+        x: it * it * sx + 2 * it * t * cx + t * t * ex,
+        y: it * it * sy + 2 * it * t * cy + t * t * ey
+      });
+    }
+    return pts;
+  }
+
+  /**
+   * 统计折线落入第三方城池覆盖圆内的采样点数量。
+   * 排除两端城池——道路本来就该连到它们身上。
+   */
+  _countOcclusions(pts, a, b) {
+    var GD = this._gd;
+    var R = 26;
+    var count = 0;
+    for (var p = 0; p < pts.length; p++) {
+      for (var id in GD.cities) {
+        if (!GD.cities.hasOwnProperty(id)) continue;
+        var c = GD.cities[id];
+        if (c === a || c === b) continue;
+        if (Math.hypot(pts[p].x - c.x, pts[p].y - c.y) < R) { count++; break; }
+      }
+    }
+    return count;
   }
 
   // 绘制城市

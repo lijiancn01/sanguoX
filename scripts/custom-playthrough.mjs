@@ -619,32 +619,54 @@ async function closePanel() {
   }
 }
 
+/**
+ * 读取某城池图标在画布上的屏幕坐标。
+ *
+ * 必须乘上 _mapScale：地图容器现在带缩放（默认约 1.3 倍自适应），
+ * 图标的屏幕位置是 c.x * scale + container.x。只用 c.x + container.x
+ * 算出来的坐标会整体偏出约 23%，点击落在城池旁边的空白处，
+ * 表现为每一回合都「城市面板未打开」。
+ */
+async function cityScreenPos(cityId) {
+  return evaluate(`(() => {
+    const GD = window.__SG3__.GameData;
+    const ms = window.__SG3__.game.scene.getScene('MapScene');
+    const c = GD.cities['${cityId}'];
+    if (!c) return null;
+    const s = ms._mapScale || 1;
+    return {
+      x: c.x * s + ms._mapContainer.x,
+      y: (c.y - 6) * s + ms._mapContainer.y,
+      scale: s
+    };
+  })()`);
+}
+
+/** 把目标城池平移到视口中心（保留当前缩放） */
+async function centerCity(cityId) {
+  return evaluate(`(() => {
+    const GD = window.__SG3__.GameData;
+    const ms = window.__SG3__.game.scene.getScene('MapScene');
+    const c = GD.cities['${cityId}'];
+    if (!c) return null;
+    const s = ms._mapScale || 1;
+    ms._mapContainer.x = ms._cw / 2 - c.x * s;
+    ms._mapContainer.y = ms._ch / 2 - c.y * s;
+    return true;
+  })()`);
+}
+
 /** 真实点击城池图标，返回城市面板是否打开 */
 async function clickCity(cityId) {
   // 先把地图平移到目标城池居中，再点击。
-  // 不做这一步会静默失败：脚本用 c.x + _mapContainer.x 算出图标坐标后直接
-  // 发点击，但地图可能被玩家（或「我的城池」面板的「进入城市操作」按钮）
+  // 不做这一步会静默失败：脚本按容器偏移算图标坐标后直接发点击，
+  // 但地图可能被玩家（或「我的城池」面板的「进入城市操作」按钮）
   // 平移到别处，此时该城图标落在画布之外甚至负坐标，点击全部落空，
   // 表现为每一回合都打印「城市面板未打开」，看起来像功能坏了。
-  // 平移公式与游戏内「进入城市操作」按钮一致：_cw/2 - c.x。
-  const r = await evaluate(`(() => {
-    const GD = window.__SG3__.GameData;
-    const ms = window.__SG3__.game.scene.getScene('MapScene');
-    const c = GD.cities['${cityId}'];
-    if (!c) return null;
-    ms._mapContainer.x = ms._cw / 2 - c.x;
-    ms._mapContainer.y = ms._ch / 2 - c.y;
-    return { x: c.x + ms._mapContainer.x, y: c.y - 6 + ms._mapContainer.y };
-  })()`);
-  if (!r) return false;
-  await sleep(120);
-  const p = await evaluate(`(() => {
-    const GD = window.__SG3__.GameData;
-    const ms = window.__SG3__.game.scene.getScene('MapScene');
-    const c = GD.cities['${cityId}'];
-    if (!c) return null;
-    return { x: c.x + ms._mapContainer.x, y: c.y - 6 + ms._mapContainer.y };
-  })()`);
+  const ok = await centerCity(cityId);
+  if (!ok) return false;
+  await sleep(140);
+  const p = await cityScreenPos(cityId);
   if (!p) return false;
   // 断言落点在画布内：越界说明平移没生效，不应继续点击
   if (p.x < 0 || p.y < 0 || p.x > 1280 || p.y > 720) {
