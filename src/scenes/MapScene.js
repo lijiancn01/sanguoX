@@ -6,6 +6,7 @@
 import Phaser from 'phaser';
 import GameData from '../core/GameData.js';
 import { FACTION_COLORS, FACTION_NAMES, FACTION_CSS } from '../core/config.js';
+import { drawHeroAvatar } from '../core/portraits.js';
 import { saveGame, loadGame } from '../platform/storage.js';
 import { showToast } from '../core/utils.js';
 
@@ -760,47 +761,15 @@ class MapScene extends Phaser.Scene {
     });
   }
 
-  // 在面板中绘制武将头像
-  _drawHeroPortraitInPanel(x, y, hero) {
+  // 在面板中绘制武将头像。
+  // 形象由 core/portraits.js 按人物特征现场绘制：著名人物有手工设定的
+  // 标志性特征（关羽长髯绿袍、夏侯惇独眼、吕布盔插雉翎等），其余人物按
+  // 稳定哈希从调色板派生，保证同一人物每次一致、不同人物互不相同。
+  // size 可调，坐标按比例缩放，故 30/40 都适用。
+  _drawHeroPortraitInPanel(x, y, hero, size) {
     var g = this.add.graphics();
     var factionColor = (FACTION_COLORS[hero.faction] || 0x888888);
-
-    // 头像框
-    g.fillStyle(0x3a2a1a, 1);
-    g.fillRoundedRect(x, y, 30, 30, 4);
-    g.fillStyle(factionColor, 0.8);
-    g.fillRoundedRect(x + 1, y + 1, 28, 28, 3);
-
-    // 根据武将类型画不同图标
-    var isWarrior = hero.force >= 80;
-    var isStrategist = hero.intellect >= 85;
-    var isMonarch = hero.isMonarch;
-
-    if (isMonarch) {
-      // 君主：皇冠
-      g.fillStyle(0xffd700, 1);
-      g.fillTriangle(x + 15, y + 6, x + 8, y + 14, x + 22, y + 14);
-      g.fillRect(x + 9, y + 14, 12, 3);
-    } else if (isStrategist) {
-      // 谋士：羽扇
-      g.fillStyle(0xe8e0d0, 1);
-      g.fillCircle(x + 15, y + 15, 7);
-      g.fillStyle(0x4a3a2a, 1);
-      g.fillRect(x + 14, y + 15, 2, 8);
-    } else if (isWarrior) {
-      // 武将：刀剑
-      g.fillStyle(0xe8e0d0, 1);
-      g.fillRect(x + 14, y + 8, 2, 14);
-      g.fillRect(x + 10, y + 20, 10, 2);
-      g.fillStyle(0xaa6a2a, 1);
-      g.fillRect(x + 13, y + 22, 4, 3);
-    } else {
-      // 普通：人物剪影
-      g.fillStyle(0xe8e0d0, 0.8);
-      g.fillCircle(x + 15, y + 12, 4);
-      g.fillRect(x + 11, y + 16, 8, 8);
-    }
-
+    drawHeroAvatar(g, x, y, size || 30, hero, factionColor);
     this._panelContainer.add(g);
   }
 
@@ -963,7 +932,11 @@ class MapScene extends Phaser.Scene {
         var heroFontSize = isMonarch ? '14px' : '13px';
         var heroCheckedBg = isMonarch ? 'rgba(255,215,0,0.35)' : 'rgba(255,215,0,0.2)';
         var heroUncheckedBg = isMonarch ? 'rgba(255,140,0,0.15)' : 'rgba(0,0,0,0)';
-        var cb = scene.add.text(20, y, '[✓] ' + heroText, {
+
+        // 头像：行高只有 22/24px，故用 20px 小图；文字相应右移到 x=44。
+        scene._drawHeroPortraitInPanel(18, y - 1, hero, 20);
+
+        var cb = scene.add.text(44, y, '[✓] ' + heroText, {
           fontSize: heroFontSize, color: heroColor, fontStyle: heroFontStyle,
           fontFamily: '"Microsoft YaHei", "SimHei", serif',
           backgroundColor: selectedHeroIds[hero.id] ? heroCheckedBg : heroUncheckedBg,
