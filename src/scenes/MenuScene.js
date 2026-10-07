@@ -68,8 +68,11 @@ class MenuScene extends Phaser.Scene {
     // 底部按钮区
     var btnY = 540;
 
-    // 自定义君主按钮
-    this._createStyledButton(w / 2 - 130, btnY, 220, 44, '自定义君主', '#ffd700', 0x3a2a00, function() {
+    // 自定义君主按钮。
+    // 传的是「中心坐标」：_createStyledButton 内部按 x - w/2 绘制，
+    // 因此 x 必须是中心。曾经误传 w/2 - 130（左边缘值），
+    // 按钮整体左移半个身位（220/2=110px），与上方三张势力卡片不对齐。
+    this._createStyledButton(w / 2, btnY, 220, 44, '自定义君主', '#ffd700', 0x3a2a00, function() {
       scene._showCustomMonarch();
     });
 
@@ -91,7 +94,10 @@ class MenuScene extends Phaser.Scene {
     var scene = this;
     storageHasSave(0).then(function (hasSave) {
       if (!hasSave) return;
-      scene._createStyledButton(w / 2 + 130, btnY, 220, 44, '继续游戏', '#c4a882', 0x2a2010, function () {
+      // 与「自定义君主」对称：两个按钮中心分别在 w/2 ∓ btnOffset。
+      // offset 需大于半个按钮宽（110），否则两按钮会重叠。
+      var btnOffset = 130;
+      scene._createStyledButton(w / 2 + btnOffset, btnY, 220, 44, '继续游戏', '#c4a882', 0x2a2010, function () {
         storageLoad(0).then(function (r) {
           if (!r.ok) { scene._showToast(r.msg || '读档失败'); return; }
           var res = GameData.fromJSON(r.data);
