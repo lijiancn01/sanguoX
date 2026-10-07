@@ -324,10 +324,6 @@ class MenuScene extends Phaser.Scene {
       color: '#ffd700', fontStyle: 'bold',
       stroke: '#000000', strokeThickness: 2
     }).setOrigin(0.5);
-
-    // 旗帜杆
-    g.lineStyle(2, 0x8a6d3b, 0.8);
-    g.lineBetween(cx + r + 2, cy - r, cx + r + 2, cy + r);
   }
 
   // ===== 自定义君主界面 =====
