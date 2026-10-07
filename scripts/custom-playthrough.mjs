@@ -621,6 +621,23 @@ async function closePanel() {
 
 /** 真实点击城池图标，返回城市面板是否打开 */
 async function clickCity(cityId) {
+  // 先把地图平移到目标城池居中，再点击。
+  // 不做这一步会静默失败：脚本用 c.x + _mapContainer.x 算出图标坐标后直接
+  // 发点击，但地图可能被玩家（或「我的城池」面板的「进入城市操作」按钮）
+  // 平移到别处，此时该城图标落在画布之外甚至负坐标，点击全部落空，
+  // 表现为每一回合都打印「城市面板未打开」，看起来像功能坏了。
+  // 平移公式与游戏内「进入城市操作」按钮一致：_cw/2 - c.x。
+  const r = await evaluate(`(() => {
+    const GD = window.__SG3__.GameData;
+    const ms = window.__SG3__.game.scene.getScene('MapScene');
+    const c = GD.cities['${cityId}'];
+    if (!c) return null;
+    ms._mapContainer.x = ms._cw / 2 - c.x;
+    ms._mapContainer.y = ms._ch / 2 - c.y;
+    return { x: c.x + ms._mapContainer.x, y: c.y - 6 + ms._mapContainer.y };
+  })()`);
+  if (!r) return false;
+  await sleep(120);
   const p = await evaluate(`(() => {
     const GD = window.__SG3__.GameData;
     const ms = window.__SG3__.game.scene.getScene('MapScene');
@@ -629,6 +646,11 @@ async function clickCity(cityId) {
     return { x: c.x + ms._mapContainer.x, y: c.y - 6 + ms._mapContainer.y };
   })()`);
   if (!p) return false;
+  // 断言落点在画布内：越界说明平移没生效，不应继续点击
+  if (p.x < 0 || p.y < 0 || p.x > 1280 || p.y > 720) {
+    record(`  ! ${cityId} 落点越界 (${Math.round(p.x)},${Math.round(p.y)})，跳过点击`);
+    return false;
+  }
   await clickGame(p.x, p.y);
   await sleep(280);
   return panelVisible();
